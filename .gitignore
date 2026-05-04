@@ -6,6 +6,8 @@
 # Generated local database; recreate with R/run_analysis.R.
 data/*.sqlite
 data/*.sqlite-*
+data/user_*.csv
+!data/sample_energy_upload.csv
 
 # Local scratch files
 *.log

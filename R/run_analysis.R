@@ -1,5 +1,7 @@
 #!/usr/bin/env Rscript
 
+APP_TITLE <- "GridScope Studio"
+
 get_project_root <- function() {
   args <- commandArgs(trailingOnly = FALSE)
   file_arg <- grep("^--file=", args, value = TRUE)
@@ -10,6 +12,46 @@ get_project_root <- function() {
 
   script_path <- normalizePath(sub("^--file=", "", file_arg[[1]]), mustWork = TRUE)
   normalizePath(file.path(dirname(script_path), ".."), mustWork = TRUE)
+}
+
+parse_cli_args <- function() {
+  args <- commandArgs(trailingOnly = TRUE)
+  options <- list(input = NULL, output = NULL)
+
+  if ("--help" %in% args || "-h" %in% args) {
+    cat(
+      "Usage:\n",
+      "  Rscript R/run_analysis.R\n",
+      "  Rscript R/run_analysis.R --input path/to/energy.csv --output output/custom-report.html\n\n",
+      "Custom CSV columns:\n",
+      "  day or date\n",
+      "  grid_import_kwh or total_kwh, or peak_kwh/shoulder_kwh/offpeak_kwh\n",
+      "  optional: household_id, neighbourhood, solar_export_kwh, estimated_bill\n",
+      sep = ""
+    )
+    quit(save = "no", status = 0)
+  }
+
+  i <- 1
+  while (i <= length(args)) {
+    if (args[[i]] == "--input") {
+      if (i == length(args)) {
+        stop("--input requires a path.", call. = FALSE)
+      }
+      options$input <- args[[i + 1]]
+      i <- i + 2
+    } else if (args[[i]] == "--output") {
+      if (i == length(args)) {
+        stop("--output requires a path.", call. = FALSE)
+      }
+      options$output <- args[[i + 1]]
+      i <- i + 2
+    } else {
+      stop(paste("Unknown argument:", args[[i]]), call. = FALSE)
+    }
+  }
+
+  options
 }
 
 run_checked <- function(command, args, stdin = NULL) {
@@ -49,6 +91,165 @@ query_to_frame <- function(sqlite, db_path, sql_file) {
     text = paste(output, collapse = "\n"),
     stringsAsFactors = FALSE,
     check.names = FALSE
+  )
+}
+
+sqlite_import_path <- function(path) {
+  paste0('"', gsub('"', '""', normalizePath(path, mustWork = TRUE), fixed = TRUE), '"')
+}
+
+import_csv_to_table <- function(sqlite, db_path, csv_path, table_name) {
+  import_script <- tempfile(fileext = ".sql")
+  writeLines(
+    c(
+      ".mode csv",
+      paste(".import --skip 1", sqlite_import_path(csv_path), table_name)
+    ),
+    import_script
+  )
+  invisible(run_checked(sqlite, db_path, stdin = import_script))
+}
+
+normalise_column_name <- function(value) {
+  value <- tolower(trimws(value))
+  value <- gsub("[^a-z0-9]+", "_", value)
+  gsub("^_|_$", "", value)
+}
+
+find_column <- function(headers, candidates) {
+  match_index <- match(candidates, headers)
+  match_index <- match_index[!is.na(match_index)]
+
+  if (length(match_index) == 0) {
+    return(NA_integer_)
+  }
+
+  match_index[[1]]
+}
+
+parse_user_dates <- function(values) {
+  values <- trimws(as.character(values))
+  parsed <- rep(as.Date(NA), length(values))
+  formats <- c("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y", "%Y/%m/%d")
+
+  for (format in formats) {
+    candidates <- suppressWarnings(as.Date(values, format = format))
+    parsed[is.na(parsed) & !is.na(candidates)] <- candidates[is.na(parsed) & !is.na(candidates)]
+  }
+
+  parsed
+}
+
+numeric_values <- function(values, default = 0) {
+  cleaned <- gsub("[$,[:space:]]", "", as.character(values))
+  cleaned[cleaned == ""] <- NA_character_
+  parsed <- suppressWarnings(as.numeric(cleaned))
+  parsed[is.na(parsed)] <- default
+  parsed
+}
+
+optional_numeric_values <- function(values) {
+  cleaned <- gsub("[$,[:space:]]", "", as.character(values))
+  cleaned[cleaned == ""] <- NA_character_
+  suppressWarnings(as.numeric(cleaned))
+}
+
+column_or_default <- function(data, column, default) {
+  if (is.na(column)) {
+    if (length(default) == nrow(data)) {
+      return(default)
+    }
+
+    return(rep(default, nrow(data)))
+  }
+
+  data[[column]]
+}
+
+normalise_user_csv <- function(input_path) {
+  raw <- read.csv(
+    input_path,
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+
+  if (nrow(raw) == 0) {
+    stop("The input CSV has no data rows.", call. = FALSE)
+  }
+
+  headers <- normalise_column_name(names(raw))
+  columns <- list(
+    day = find_column(headers, c("day", "date", "reading_date", "timestamp", "meter_date")),
+    household = find_column(headers, c("household_id", "account_id", "site_id", "meter_id", "customer_id")),
+    neighbourhood = find_column(headers, c("neighbourhood", "neighborhood", "suburb", "area", "region")),
+    peak = find_column(headers, c("peak_kwh", "peak", "peak_usage_kwh")),
+    shoulder = find_column(headers, c("shoulder_kwh", "shoulder", "shoulder_usage_kwh")),
+    offpeak = find_column(headers, c("offpeak_kwh", "off_peak_kwh", "offpeak", "off_peak")),
+    solar = find_column(headers, c("solar_export_kwh", "solar_kwh", "export_kwh", "solar_export")),
+    grid = find_column(headers, c("grid_import_kwh", "import_kwh", "grid_kwh", "usage_kwh", "consumption_kwh")),
+    total = find_column(headers, c("total_kwh", "consumed_kwh", "energy_kwh", "kwh")),
+    bill = find_column(headers, c("estimated_bill", "bill", "cost", "amount", "charge"))
+  )
+
+  if (is.na(columns$day)) {
+    stop("The input CSV needs a date column named day, date, reading_date, or timestamp.", call. = FALSE)
+  }
+
+  has_tiered_usage <- !is.na(columns$peak) || !is.na(columns$shoulder) || !is.na(columns$offpeak)
+  has_total_usage <- !is.na(columns$grid) || !is.na(columns$total)
+  if (!has_tiered_usage && !has_total_usage) {
+    stop("The input CSV needs grid_import_kwh, total_kwh, or peak/shoulder/offpeak kWh columns.", call. = FALSE)
+  }
+
+  dates <- parse_user_dates(raw[[columns$day]])
+  valid_rows <- !is.na(dates)
+  if (!any(valid_rows)) {
+    stop("No valid dates were found in the input CSV.", call. = FALSE)
+  }
+
+  raw <- raw[valid_rows, , drop = FALSE]
+  dates <- dates[valid_rows]
+
+  supplied_total <- numeric_values(column_or_default(raw, columns$total, column_or_default(raw, columns$grid, 0)))
+  peak <- numeric_values(column_or_default(raw, columns$peak, 0))
+  shoulder <- numeric_values(column_or_default(raw, columns$shoulder, 0))
+  offpeak <- numeric_values(column_or_default(raw, columns$offpeak, 0))
+
+  if (!has_tiered_usage) {
+    peak <- supplied_total * 0.44
+    shoulder <- supplied_total * 0.34
+    offpeak <- supplied_total * 0.22
+  }
+
+  solar <- numeric_values(column_or_default(raw, columns$solar, 0))
+  grid <- if (is.na(columns$grid)) {
+    pmax(0, peak + shoulder + offpeak - solar)
+  } else {
+    numeric_values(raw[[columns$grid]])
+  }
+
+  bill <- if (is.na(columns$bill)) {
+    rep(NA_real_, nrow(raw))
+  } else {
+    optional_numeric_values(raw[[columns$bill]])
+  }
+
+  household <- as.character(column_or_default(raw, columns$household, "Unknown"))
+  neighbourhood <- as.character(column_or_default(raw, columns$neighbourhood, "Ungrouped"))
+  household[trimws(household) == ""] <- "Unknown"
+  neighbourhood[trimws(neighbourhood) == ""] <- "Ungrouped"
+
+  data.frame(
+    day = format(dates, "%Y-%m-%d"),
+    household_id = household,
+    neighbourhood = neighbourhood,
+    peak_kwh = round(peak, 4),
+    shoulder_kwh = round(shoulder, 4),
+    offpeak_kwh = round(offpeak, 4),
+    solar_export_kwh = round(solar, 4),
+    grid_import_kwh = round(grid, 4),
+    estimated_bill = round(bill, 4),
+    stringsAsFactors = FALSE
   )
 }
 
@@ -208,6 +409,120 @@ plot_household_efficiency <- function(efficiency, path) {
   )
 }
 
+plot_user_load_mix <- function(load_mix, path) {
+  png(path, width = 900, height = 650, res = 130)
+  old_par <- par(mar = c(6, 5, 4, 2) + 0.1)
+  on.exit({
+    par(old_par)
+    dev.off()
+  })
+
+  barplot(
+    load_mix$kwh,
+    names.arg = load_mix$load_type,
+    col = c("#ef4444", "#f59e0b", "#2563eb", "#10b981"),
+    border = NA,
+    las = 2,
+    ylab = "kWh",
+    main = "Load Mix"
+  )
+  grid(nx = NA, ny = NULL, col = "#d9d9d9")
+}
+
+plot_user_group_summary <- function(groups, path) {
+  png(path, width = 1000, height = 650, res = 130)
+  old_par <- par(mar = c(7, 5, 4, 2) + 0.1)
+  on.exit({
+    par(old_par)
+    dev.off()
+  })
+
+  barplot(
+    groups$grid_import_kwh,
+    names.arg = groups$neighbourhood,
+    col = "#2563eb",
+    border = NA,
+    las = 2,
+    ylab = "Grid import (kWh)",
+    main = "Grid Import by Group"
+  )
+  grid(nx = NA, ny = NULL, col = "#d9d9d9")
+}
+
+write_uploaded_report <- function(monthly, groups, load_mix, quality, path) {
+  total_bill <- if (all(is.na(monthly$estimated_bill))) {
+    NA_real_
+  } else {
+    sum(monthly$estimated_bill, na.rm = TRUE)
+  }
+  highest_month <- monthly[order(monthly$grid_import_kwh, decreasing = TRUE), ][1, ]
+  top_group <- groups[order(groups$grid_import_kwh, decreasing = TRUE), ][1, ]
+
+  html <- paste0(
+    "<!doctype html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+<title>", APP_TITLE, "</title>
+<link rel=\"stylesheet\" href=\"../assets/studio.css\">
+</head>
+<body>
+<header>
+<h1>", APP_TITLE, "</h1>
+<p class=\"lede\">Personal energy analysis generated from your uploaded CSV.</p>
+</header>
+<main>
+<section class=\"metrics\">
+<div class=\"metric\"><span>Records</span><strong>", quality$records, "</strong></div>
+<div class=\"metric\"><span>Days covered</span><strong>", quality$days, "</strong></div>
+<div class=\"metric\"><span>Grid import</span><strong>", number(quality$grid_import_kwh, 1), " kWh</strong></div>
+<div class=\"metric\"><span>Solar export</span><strong>", number(quality$solar_export_kwh, 1), " kWh</strong></div>
+<div class=\"metric\"><span>Estimated cost</span><strong>", ifelse(is.na(total_bill), "Not supplied", money(total_bill)), "</strong></div>
+</section>
+
+<section class=\"report-section\">
+<h2>Key Signals</h2>
+<ul class=\"insight-list\">
+<li>Highest grid import month: ", html_escape(highest_month$month), " at ", number(highest_month$grid_import_kwh, 1), " kWh.</li>
+<li>Top grid import group: ", html_escape(top_group$neighbourhood), " at ", number(top_group$grid_import_kwh, 1), " kWh.</li>
+<li>Solar exports equal ", number(quality$solar_export_pct, 1), "% of recorded consumption.</li>
+<li>Peak usage is ", number(quality$peak_share_pct, 1), "% of recorded consumption.</li>
+</ul>
+</section>
+
+<section class=\"report-section\">
+<h2>Monthly Demand</h2>
+<div class=\"figure\"><img src=\"figures/user_monthly_usage.png\" alt=\"Monthly grid import and solar export chart\"></div>
+",
+    data_frame_to_html(monthly, 12),
+    "
+</section>
+
+<section class=\"report-section\">
+<h2>Load Mix</h2>
+<div class=\"figure\"><img src=\"figures/user_load_mix.png\" alt=\"Load mix chart\"></div>
+",
+    data_frame_to_html(load_mix, 8),
+    "
+</section>
+
+<section class=\"report-section\">
+<h2>Groups</h2>
+<div class=\"figure\"><img src=\"figures/user_group_summary.png\" alt=\"Grid import by group chart\"></div>
+",
+    data_frame_to_html(groups, 10),
+    "
+</section>
+</main>
+</body>
+</html>"
+  )
+
+  writeLines(html, path)
+  message("Wrote custom report: ", path)
+}
+
 write_report <- function(monthly, efficiency, plans, load_mix, path) {
   total_import <- sum(monthly$grid_import_kwh)
   total_solar <- sum(monthly$solar_export_kwh)
@@ -222,90 +537,53 @@ write_report <- function(monthly, efficiency, plans, load_mix, path) {
 <head>
 <meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-<title>SQL + R Energy Insights</title>
-<style>
-:root { color-scheme: light; }
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #f7f8fb;
-  color: #172033;
-}
-header {
-  background: #172033;
-  color: #ffffff;
-  padding: 44px 7vw 36px;
-}
-main {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 30px 20px 54px;
-}
-h1 { margin: 0 0 10px; font-size: 2.4rem; letter-spacing: 0; }
-h2 { margin: 34px 0 14px; color: #172033; }
-p { line-height: 1.6; }
-.lede { max-width: 760px; color: #dbeafe; }
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 14px;
-  margin: 22px 0;
-}
-.metric {
-  background: #ffffff;
-  border: 1px solid #e3e8f2;
-  border-radius: 8px;
-  padding: 16px;
-}
-.metric span {
-  display: block;
-  color: #667085;
-  font-size: 0.88rem;
-}
-.metric strong {
-  display: block;
-  margin-top: 7px;
-  font-size: 1.35rem;
-}
-.figure {
-  background: #ffffff;
-  border: 1px solid #e3e8f2;
-  border-radius: 8px;
-  padding: 12px;
-  margin: 16px 0;
-}
-.figure img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: #ffffff;
-  border: 1px solid #e3e8f2;
-  border-radius: 8px;
-  overflow: hidden;
-}
-th, td {
-  padding: 9px 10px;
-  border-bottom: 1px solid #e3e8f2;
-  text-align: left;
-  font-size: 0.92rem;
-}
-th {
-  background: #edf2f7;
-  color: #344054;
-}
-tr:last-child td { border-bottom: 0; }
-</style>
+<title>", APP_TITLE, "</title>
+<link rel=\"stylesheet\" href=\"../assets/studio.css\">
 </head>
 <body>
 <header>
-<h1>SQL + R Energy Insights</h1>
-<p class=\"lede\">A compact analytics pipeline built with SQL and base R. SQL creates the SQLite data model, seeds a synthetic year of energy readings, and runs reusable analysis queries. R executes the pipeline and turns the results into tables, charts, and this report.</p>
+<h1>", APP_TITLE, "</h1>
+<p class=\"lede\">Upload energy data, review clear charts, and spot cost and demand patterns without turning the page into a spreadsheet cave.</p>
 </header>
 <main>
+<section class=\"studio-panel\" id=\"upload-studio\">
+<div>
+<p class=\"eyebrow\">Personal workspace</p>
+<h2>Analyse Your CSV</h2>
+<p>Use a billing or meter file with a date column and kWh columns. Optional group, solar, and cost columns unlock richer comparisons.</p>
+</div>
+<div class=\"upload-controls\">
+<label class=\"file-picker\" for=\"energy-csv\">Choose CSV<input id=\"energy-csv\" type=\"file\" accept=\".csv,text/csv\"></label>
+<button id=\"load-sample\" type=\"button\">Try Sample</button>
+<a class=\"template-link\" href=\"../data/sample_energy_upload.csv\">Template</a>
+</div>
+<div class=\"status\" id=\"upload-status\">Waiting for data.</div>
+</section>
+
+<section class=\"report-section\" id=\"personal-results\" hidden>
+<h2>Personal Analysis</h2>
+<div class=\"metrics\" id=\"personal-metrics\"></div>
+<h3>Signals</h3>
+<ul class=\"insight-list\" id=\"personal-insights\"></ul>
+<div class=\"results-grid\">
+<div>
+<h3>Monthly Demand</h3>
+<div class=\"chart\" id=\"monthly-chart\"></div>
+</div>
+<div>
+<h3>Cost</h3>
+<div class=\"chart\" id=\"cost-chart\"></div>
+</div>
+</div>
+<h3>Load Mix</h3>
+<div class=\"chart\" id=\"mix-chart\"></div>
+<h3>Monthly Table</h3>
+<div id=\"monthly-table\"></div>
+<h3>Group Table</h3>
+<div id=\"group-table\"></div>
+</section>
+
+<h2 class=\"demo-heading\">Demo Portfolio</h2>
 <section class=\"metrics\">
 <div class=\"metric\"><span>Annual grid import</span><strong>", number(total_import, 1), " kWh</strong></div>
 <div class=\"metric\"><span>Solar exported</span><strong>", number(total_solar, 1), " kWh</strong></div>
@@ -314,13 +592,13 @@ tr:last-child td { border-bottom: 0; }
 </section>
 
 <h2>Monthly Demand</h2>
-<p>Grid imports rise in hotter and colder months, while solar export peaks through the summer profile generated in SQL.</p>
+<p>Grid imports rise in hotter and colder months, while solar export peaks through the modeled summer profile.</p>
 <div class=\"figure\"><img src=\"figures/monthly_usage.png\" alt=\"Monthly grid import and solar export chart\"></div>
 ",
     data_frame_to_html(monthly, 12),
     "
 <h2>Plan Comparison</h2>
-<p>", html_escape(best_plan$plan_name), " has the lowest average daily bill in this synthetic portfolio. The query also tracks peak-share exposure and solar export share by plan.</p>
+<p>", html_escape(best_plan$plan_name), " has the lowest average daily bill in this synthetic portfolio. The comparison also tracks peak-share exposure and solar export share by plan.</p>
 <div class=\"figure\"><img src=\"figures/plan_comparison.png\" alt=\"Average daily bill by plan chart\"></div>
 ",
     data_frame_to_html(plans, 8),
@@ -338,6 +616,7 @@ tr:last-child td { border-bottom: 0; }
     data_frame_to_html(efficiency, 10),
     "
 </main>
+<script src=\"../assets/studio.js\"></script>
 </body>
 </html>"
   )
@@ -346,12 +625,85 @@ tr:last-child td { border-bottom: 0; }
   message("Wrote report: ", path)
 }
 
+run_custom_analysis <- function(root, sqlite, input_path, output_path) {
+  input_path <- if (grepl("^/", input_path)) {
+    input_path
+  } else {
+    file.path(root, input_path)
+  }
+  input_path <- normalizePath(input_path, mustWork = TRUE)
+
+  output_path <- if (is.null(output_path)) {
+    file.path(root, "output", "custom-report.html")
+  } else if (grepl("^/", output_path)) {
+    output_path
+  } else {
+    file.path(root, output_path)
+  }
+
+  data_dir <- file.path(root, "data")
+  output_dir <- dirname(output_path)
+  table_dir <- file.path(output_dir, "tables")
+  figure_dir <- file.path(output_dir, "figures")
+  db_path <- file.path(data_dir, "user_energy.sqlite")
+  normalised_csv <- file.path(data_dir, "user_readings_normalized.csv")
+
+  dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+  if (file.exists(db_path)) {
+    unlink(db_path)
+  }
+
+  normalised <- normalise_user_csv(input_path)
+  write.csv(normalised, normalised_csv, row.names = FALSE, na = "")
+  message("Normalised input rows: ", nrow(normalised))
+
+  execute_sql_file(sqlite, db_path, file.path(root, "sql", "user_upload_schema.sql"))
+  import_csv_to_table(sqlite, db_path, normalised_csv, "user_readings")
+
+  query_files <- c(
+    user_monthly_usage = file.path(root, "sql", "queries", "user_monthly_usage.sql"),
+    user_group_summary = file.path(root, "sql", "queries", "user_group_summary.sql"),
+    user_load_mix = file.path(root, "sql", "queries", "user_load_mix.sql"),
+    user_quality = file.path(root, "sql", "queries", "user_quality.sql")
+  )
+
+  tables <- lapply(query_files, function(path) query_to_frame(sqlite, db_path, path))
+
+  for (name in names(tables)) {
+    write_table(tables[[name]], file.path(table_dir, paste0(name, ".csv")))
+  }
+
+  plot_monthly_usage(tables$user_monthly_usage, file.path(figure_dir, "user_monthly_usage.png"))
+  plot_user_group_summary(tables$user_group_summary, file.path(figure_dir, "user_group_summary.png"))
+  plot_user_load_mix(tables$user_load_mix, file.path(figure_dir, "user_load_mix.png"))
+
+  write_uploaded_report(
+    monthly = tables$user_monthly_usage,
+    groups = tables$user_group_summary,
+    load_mix = tables$user_load_mix,
+    quality = tables$user_quality[1, ],
+    path = output_path
+  )
+
+  message("Done. Open ", output_path, " to view the report.")
+}
+
 main <- function() {
+  options <- parse_cli_args()
   root <- get_project_root()
   sqlite <- Sys.which("sqlite3")
 
   if (sqlite == "") {
     stop("sqlite3 was not found on PATH. Install SQLite and rerun this script.", call. = FALSE)
+  }
+
+  if (!is.null(options$input)) {
+    run_custom_analysis(root, sqlite, options$input, options$output)
+    return(invisible(NULL))
   }
 
   data_dir <- file.path(root, "data")

@@ -3,90 +3,53 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SQL + R Energy Insights</title>
-<style>
-:root { color-scheme: light; }
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #f7f8fb;
-  color: #172033;
-}
-header {
-  background: #172033;
-  color: #ffffff;
-  padding: 44px 7vw 36px;
-}
-main {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 30px 20px 54px;
-}
-h1 { margin: 0 0 10px; font-size: 2.4rem; letter-spacing: 0; }
-h2 { margin: 34px 0 14px; color: #172033; }
-p { line-height: 1.6; }
-.lede { max-width: 760px; color: #dbeafe; }
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 14px;
-  margin: 22px 0;
-}
-.metric {
-  background: #ffffff;
-  border: 1px solid #e3e8f2;
-  border-radius: 8px;
-  padding: 16px;
-}
-.metric span {
-  display: block;
-  color: #667085;
-  font-size: 0.88rem;
-}
-.metric strong {
-  display: block;
-  margin-top: 7px;
-  font-size: 1.35rem;
-}
-.figure {
-  background: #ffffff;
-  border: 1px solid #e3e8f2;
-  border-radius: 8px;
-  padding: 12px;
-  margin: 16px 0;
-}
-.figure img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: #ffffff;
-  border: 1px solid #e3e8f2;
-  border-radius: 8px;
-  overflow: hidden;
-}
-th, td {
-  padding: 9px 10px;
-  border-bottom: 1px solid #e3e8f2;
-  text-align: left;
-  font-size: 0.92rem;
-}
-th {
-  background: #edf2f7;
-  color: #344054;
-}
-tr:last-child td { border-bottom: 0; }
-</style>
+<title>GridScope Studio</title>
+<link rel="stylesheet" href="../assets/studio.css">
 </head>
 <body>
 <header>
-<h1>SQL + R Energy Insights</h1>
-<p class="lede">A compact analytics pipeline built with SQL and base R. SQL creates the SQLite data model, seeds a synthetic year of energy readings, and runs reusable analysis queries. R executes the pipeline and turns the results into tables, charts, and this report.</p>
+<h1>GridScope Studio</h1>
+<p class="lede">Upload energy data, review clear charts, and spot cost and demand patterns without turning the page into a spreadsheet cave.</p>
 </header>
 <main>
+<section class="studio-panel" id="upload-studio">
+<div>
+<p class="eyebrow">Personal workspace</p>
+<h2>Analyse Your CSV</h2>
+<p>Use a billing or meter file with a date column and kWh columns. Optional group, solar, and cost columns unlock richer comparisons.</p>
+</div>
+<div class="upload-controls">
+<label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
+<button id="load-sample" type="button">Try Sample</button>
+<a class="template-link" href="../data/sample_energy_upload.csv">Template</a>
+</div>
+<div class="status" id="upload-status">Waiting for data.</div>
+</section>
+
+<section class="report-section" id="personal-results" hidden>
+<h2>Personal Analysis</h2>
+<div class="metrics" id="personal-metrics"></div>
+<h3>Signals</h3>
+<ul class="insight-list" id="personal-insights"></ul>
+<div class="results-grid">
+<div>
+<h3>Monthly Demand</h3>
+<div class="chart" id="monthly-chart"></div>
+</div>
+<div>
+<h3>Cost</h3>
+<div class="chart" id="cost-chart"></div>
+</div>
+</div>
+<h3>Load Mix</h3>
+<div class="chart" id="mix-chart"></div>
+<h3>Monthly Table</h3>
+<div id="monthly-table"></div>
+<h3>Group Table</h3>
+<div id="group-table"></div>
+</section>
+
+<h2 class="demo-heading">Demo Portfolio</h2>
 <section class="metrics">
 <div class="metric"><span>Annual grid import</span><strong>58,110.8 kWh</strong></div>
 <div class="metric"><span>Solar exported</span><strong>34,224.7 kWh</strong></div>
@@ -95,7 +58,7 @@ tr:last-child td { border-bottom: 0; }
 </section>
 
 <h2>Monthly Demand</h2>
-<p>Grid imports rise in hotter and colder months, while solar export peaks through the summer profile generated in SQL.</p>
+<p>Grid imports rise in hotter and colder months, while solar export peaks through the modeled summer profile.</p>
 <div class="figure"><img src="figures/monthly_usage.png" alt="Monthly grid import and solar export chart"></div>
 <table><thead><tr><th>month</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th><th>month_over_month_import_kwh</th></tr></thead><tbody><tr><td>2025-01</td><td>4181.9</td><td>4173.2</td><td>2125.69</td><td>NA</td></tr>
 <tr><td>2025-02</td><td>3814.8</td><td>3769.2</td><td>1932.64</td><td> -367.2</td></tr>
@@ -110,7 +73,7 @@ tr:last-child td { border-bottom: 0; }
 <tr><td>2025-11</td><td>3860.3</td><td>3256.3</td><td>1919.87</td><td>  -95.7</td></tr>
 <tr><td>2025-12</td><td>4177.9</td><td>4173.1</td><td>2124.23</td><td>  317.6</td></tr></tbody></table>
 <h2>Plan Comparison</h2>
-<p>Flex Saver has the lowest average daily bill in this synthetic portfolio. The query also tracks peak-share exposure and solar export share by plan.</p>
+<p>Flex Saver has the lowest average daily bill in this synthetic portfolio. The comparison also tracks peak-share exposure and solar export share by plan.</p>
 <div class="figure"><img src="figures/plan_comparison.png" alt="Average daily bill by plan chart"></div>
 <table><thead><tr><th>plan_name</th><th>households</th><th>avg_daily_bill</th><th>annual_revenue</th><th>peak_share_pct</th><th>solar_export_share_pct</th></tr></thead><tbody><tr><td>Flex Saver</td><td>4</td><td>3.97</td><td> 5790.31</td><td>36.3</td><td> 6.0</td></tr>
 <tr><td>Flat Comfort</td><td>4</td><td>4.23</td><td> 6170.68</td><td>36.7</td><td>30.5</td></tr>
@@ -136,5 +99,6 @@ tr:last-child td { border-bottom: 0; }
 <tr><td> 9</td><td>14</td><td>Westfield</td><td>townhouse</td><td>3</td><td>2.5</td><td>4335.6</td><td>3663.3</td><td>1600.8</td><td>1445.2</td><td>1743.24</td><td>581.08</td><td>steady user</td></tr>
 <tr><td>10</td><td> 8</td><td>East Park</td><td>detached</td><td>3</td><td>4.0</td><td>4738.5</td><td>3532.8</td><td>2870.6</td><td>1579.5</td><td>1803.89</td><td>601.30</td><td>steady user</td></tr></tbody></table>
 </main>
+<script src="../assets/studio.js"></script>
 </body>
 </html>

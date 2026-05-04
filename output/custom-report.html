@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GridScope Studio</title>
+<link rel="stylesheet" href="../assets/studio.css">
+</head>
+<body>
+<header>
+<h1>GridScope Studio</h1>
+<p class="lede">Personal energy analysis generated from your uploaded CSV.</p>
+</header>
+<main>
+<section class="metrics">
+<div class="metric"><span>Records</span><strong>18</strong></div>
+<div class="metric"><span>Days covered</span><strong>18</strong></div>
+<div class="metric"><span>Grid import</span><strong>272.7 kWh</strong></div>
+<div class="metric"><span>Solar export</span><strong>60.3 kWh</strong></div>
+<div class="metric"><span>Estimated cost</span><strong>$101.67</strong></div>
+</section>
+
+<section class="report-section">
+<h2>Key Signals</h2>
+<ul class="insight-list">
+<li>Highest grid import month: 2025-06 at 63.6 kWh.</li>
+<li>Top grid import group: Northbank at 82.4 kWh.</li>
+<li>Solar exports equal 20.4% of recorded consumption.</li>
+<li>Peak usage is 42.3% of recorded consumption.</li>
+</ul>
+</section>
+
+<section class="report-section">
+<h2>Monthly Demand</h2>
+<div class="figure"><img src="figures/user_monthly_usage.png" alt="Monthly grid import and solar export chart"></div>
+<table><thead><tr><th>month</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>consumed_kwh</th><th>peak_kwh</th><th>shoulder_kwh</th><th>offpeak_kwh</th><th>estimated_bill</th><th>month_over_month_import_kwh</th></tr></thead><tbody><tr><td>2025-01</td><td>45.9</td><td>11.9</td><td>50.9</td><td>22.5</td><td>17.7</td><td>10.7</td><td>17.42</td><td>NA</td></tr>
+<tr><td>2025-02</td><td>40.8</td><td>16.0</td><td>49.0</td><td>21.2</td><td>16.5</td><td>11.3</td><td>15.78</td><td>-5.1</td></tr>
+<tr><td>2025-03</td><td>35.3</td><td>12.5</td><td>40.5</td><td>17.1</td><td>14.0</td><td> 9.4</td><td>13.43</td><td>-5.5</td></tr>
+<tr><td>2025-04</td><td>45.6</td><td> 7.3</td><td>47.7</td><td>19.8</td><td>16.3</td><td>11.6</td><td>16.88</td><td>10.3</td></tr>
+<tr><td>2025-05</td><td>41.5</td><td>11.6</td><td>43.6</td><td>17.4</td><td>15.1</td><td>11.1</td><td>15.23</td><td>-4.1</td></tr>
+<tr><td>2025-06</td><td>63.6</td><td> 1.0</td><td>64.0</td><td>27.0</td><td>20.7</td><td>16.3</td><td>22.93</td><td>22.1</td></tr></tbody></table>
+</section>
+
+<section class="report-section">
+<h2>Load Mix</h2>
+<div class="figure"><img src="figures/user_load_mix.png" alt="Load mix chart"></div>
+<table><thead><tr><th>load_type</th><th>kwh</th></tr></thead><tbody><tr><td>Peak</td><td>125.0</td></tr>
+<tr><td>Shoulder</td><td>100.3</td></tr>
+<tr><td>Off-peak</td><td> 70.4</td></tr>
+<tr><td>Solar export</td><td> 60.3</td></tr></tbody></table>
+</section>
+
+<section class="report-section">
+<h2>Groups</h2>
+<div class="figure"><img src="figures/user_group_summary.png" alt="Grid import by group chart"></div>
+<table><thead><tr><th>neighbourhood</th><th>records</th><th>households</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>consumed_kwh</th><th>peak_share_pct</th><th>estimated_bill</th></tr></thead><tbody><tr><td>Northbank</td><td>5</td><td>2</td><td>82.4</td><td>15.5</td><td>87.8</td><td>43.2</td><td>30.65</td></tr>
+<tr><td>East Park</td><td>5</td><td>2</td><td>73.3</td><td>21.9</td><td>83.4</td><td>42.1</td><td>27.74</td></tr>
+<tr><td>Westfield</td><td>4</td><td>2</td><td>67.8</td><td> 7.3</td><td>69.9</td><td>41.6</td><td>24.82</td></tr>
+<tr><td>Harbourview</td><td>4</td><td>2</td><td>49.2</td><td>15.6</td><td>54.6</td><td>41.9</td><td>18.46</td></tr></tbody></table>
+</section>
+</main>
+</body>
+</html>
