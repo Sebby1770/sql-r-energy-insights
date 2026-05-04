@@ -1,0 +1,12 @@
+.DS_Store
+.Rhistory
+.RData
+.Rproj.user/
+
+# Generated local database; recreate with R/run_analysis.R.
+data/*.sqlite
+data/*.sqlite-*
+
+# Local scratch files
+*.log
+tmp/

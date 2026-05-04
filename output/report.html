@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQL + R Energy Insights</title>
+<style>
+:root { color-scheme: light; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f7f8fb;
+  color: #172033;
+}
+header {
+  background: #172033;
+  color: #ffffff;
+  padding: 44px 7vw 36px;
+}
+main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 30px 20px 54px;
+}
+h1 { margin: 0 0 10px; font-size: 2.4rem; letter-spacing: 0; }
+h2 { margin: 34px 0 14px; color: #172033; }
+p { line-height: 1.6; }
+.lede { max-width: 760px; color: #dbeafe; }
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin: 22px 0;
+}
+.metric {
+  background: #ffffff;
+  border: 1px solid #e3e8f2;
+  border-radius: 8px;
+  padding: 16px;
+}
+.metric span {
+  display: block;
+  color: #667085;
+  font-size: 0.88rem;
+}
+.metric strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 1.35rem;
+}
+.figure {
+  background: #ffffff;
+  border: 1px solid #e3e8f2;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 16px 0;
+}
+.figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #ffffff;
+  border: 1px solid #e3e8f2;
+  border-radius: 8px;
+  overflow: hidden;
+}
+th, td {
+  padding: 9px 10px;
+  border-bottom: 1px solid #e3e8f2;
+  text-align: left;
+  font-size: 0.92rem;
+}
+th {
+  background: #edf2f7;
+  color: #344054;
+}
+tr:last-child td { border-bottom: 0; }
+</style>
+</head>
+<body>
+<header>
+<h1>SQL + R Energy Insights</h1>
+<p class="lede">A compact analytics pipeline built with SQL and base R. SQL creates the SQLite data model, seeds a synthetic year of energy readings, and runs reusable analysis queries. R executes the pipeline and turns the results into tables, charts, and this report.</p>
+</header>
+<main>
+<section class="metrics">
+<div class="metric"><span>Annual grid import</span><strong>58,110.8 kWh</strong></div>
+<div class="metric"><span>Solar exported</span><strong>34,224.7 kWh</strong></div>
+<div class="metric"><span>Estimated bills</span><strong>$26,375.79</strong></div>
+<div class="metric"><span>Lowest average plan</span><strong>Flex Saver</strong></div>
+</section>
+
+<h2>Monthly Demand</h2>
+<p>Grid imports rise in hotter and colder months, while solar export peaks through the summer profile generated in SQL.</p>
+<div class="figure"><img src="figures/monthly_usage.png" alt="Monthly grid import and solar export chart"></div>
+<table><thead><tr><th>month</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th><th>month_over_month_import_kwh</th></tr></thead><tbody><tr><td>2025-01</td><td>4181.9</td><td>4173.2</td><td>2125.69</td><td>NA</td></tr>
+<tr><td>2025-02</td><td>3814.8</td><td>3769.2</td><td>1932.64</td><td> -367.2</td></tr>
+<tr><td>2025-03</td><td>4382.0</td><td>2693.9</td><td>2056.41</td><td>  567.2</td></tr>
+<tr><td>2025-04</td><td>4214.4</td><td>2606.6</td><td>1982.20</td><td> -167.6</td></tr>
+<tr><td>2025-05</td><td>4359.7</td><td>2693.3</td><td>2049.69</td><td>  145.3</td></tr>
+<tr><td>2025-06</td><td>6964.3</td><td>1381.9</td><td>2708.92</td><td> 2604.6</td></tr>
+<tr><td>2025-07</td><td>7156.4</td><td>1427.6</td><td>2787.43</td><td>  192.0</td></tr>
+<tr><td>2025-08</td><td>7213.5</td><td>1428.0</td><td>2804.34</td><td>   57.1</td></tr>
+<tr><td>2025-09</td><td>3829.6</td><td>3256.3</td><td>1910.56</td><td>-3383.9</td></tr>
+<tr><td>2025-10</td><td>3956.0</td><td>3365.3</td><td>1973.81</td><td>  126.4</td></tr>
+<tr><td>2025-11</td><td>3860.3</td><td>3256.3</td><td>1919.87</td><td>  -95.7</td></tr>
+<tr><td>2025-12</td><td>4177.9</td><td>4173.1</td><td>2124.23</td><td>  317.6</td></tr></tbody></table>
+<h2>Plan Comparison</h2>
+<p>Flex Saver has the lowest average daily bill in this synthetic portfolio. The query also tracks peak-share exposure and solar export share by plan.</p>
+<div class="figure"><img src="figures/plan_comparison.png" alt="Average daily bill by plan chart"></div>
+<table><thead><tr><th>plan_name</th><th>households</th><th>avg_daily_bill</th><th>annual_revenue</th><th>peak_share_pct</th><th>solar_export_share_pct</th></tr></thead><tbody><tr><td>Flex Saver</td><td>4</td><td>3.97</td><td> 5790.31</td><td>36.3</td><td> 6.0</td></tr>
+<tr><td>Flat Comfort</td><td>4</td><td>4.23</td><td> 6170.68</td><td>36.7</td><td>30.5</td></tr>
+<tr><td>Solar Plus</td><td>8</td><td>4.94</td><td>14414.80</td><td>36.2</td><td>65.7</td></tr></tbody></table>
+<h2>Neighbourhood Load Mix</h2>
+<p>Harbourview has the highest estimated annual bill in the model, making it a useful candidate for demand response or solar export programs.</p>
+<div class="figure"><img src="figures/neighbourhood_load_mix.png" alt="Neighbourhood load mix chart"></div>
+<table><thead><tr><th>neighbourhood</th><th>peak_kwh</th><th>shoulder_kwh</th><th>offpeak_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th></tr></thead><tbody><tr><td>East Park</td><td>6484.3</td><td>6645.0</td><td>4618.6</td><td>8943.9</td><td>6515.52</td></tr>
+<tr><td>Westfield</td><td>6992.3</td><td>7258.1</td><td>5029.5</td><td>9186.4</td><td>6917.06</td></tr>
+<tr><td>Northbank</td><td>5628.6</td><td>5774.6</td><td>4005.1</td><td>6666.4</td><td>5882.46</td></tr>
+<tr><td>Harbourview</td><td>7247.3</td><td>7565.3</td><td>5236.5</td><td>9428.0</td><td>7060.75</td></tr></tbody></table>
+<h2>Household Efficiency</h2>
+<p>The top-ranked household is #12 in Harbourview, with 1,173.2 kWh per resident.</p>
+<div class="figure"><img src="figures/household_efficiency.png" alt="Household efficiency scatter plot"></div>
+<table><thead><tr><th>efficiency_rank</th><th>household_id</th><th>neighbourhood</th><th>home_type</th><th>residents</th><th>solar_kw</th><th>consumed_kwh</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>kwh_per_resident</th><th>annual_bill</th><th>annual_bill_per_resident</th><th>insight_segment</th></tr></thead><tbody><tr><td> 1</td><td>12</td><td>Harbourview</td><td>detached</td><td>6</td><td>7.2</td><td>7039.2</td><td>4916.6</td><td>5053.9</td><td>1173.2</td><td>2152.37</td><td>358.73</td><td>solar leader</td></tr>
+<tr><td> 2</td><td>16</td><td>Westfield</td><td>detached</td><td>5</td><td>6.0</td><td>6272.0</td><td>4502.4</td><td>4213.1</td><td>1254.4</td><td>1985.73</td><td>397.15</td><td>solar leader</td></tr>
+<tr><td> 3</td><td> 7</td><td>East Park</td><td>detached</td><td>5</td><td>6.4</td><td>6272.7</td><td>4360.9</td><td>4552.0</td><td>1254.5</td><td>1965.52</td><td>393.10</td><td>solar leader</td></tr>
+<tr><td> 4</td><td>10</td><td>Harbourview</td><td>townhouse</td><td>4</td><td>1.8</td><td>5103.2</td><td>4753.7</td><td> 832.2</td><td>1275.8</td><td>1917.71</td><td>479.43</td><td>lean user</td></tr>
+<tr><td> 5</td><td> 4</td><td>Northbank</td><td>detached</td><td>4</td><td>5.8</td><td>5504.7</td><td>3732.7</td><td>4218.9</td><td>1376.2</td><td>1768.19</td><td>442.05</td><td>solar leader</td></tr>
+<tr><td> 6</td><td>11</td><td>Harbourview</td><td>detached</td><td>4</td><td>5.0</td><td>5505.4</td><td>4017.9</td><td>3541.8</td><td>1376.4</td><td>1809.18</td><td>452.30</td><td>solar leader</td></tr>
+<tr><td> 7</td><td>15</td><td>Westfield</td><td>detached</td><td>4</td><td>4.8</td><td>5505.4</td><td>4089.0</td><td>3372.5</td><td>1376.4</td><td>1819.14</td><td>454.79</td><td>lean user</td></tr>
+<tr><td> 8</td><td> 3</td><td>Northbank</td><td>townhouse</td><td>3</td><td>3.5</td><td>4334.9</td><td>3307.1</td><td>2447.4</td><td>1445.0</td><td>1537.94</td><td>512.65</td><td>steady user</td></tr>
+<tr><td> 9</td><td>14</td><td>Westfield</td><td>townhouse</td><td>3</td><td>2.5</td><td>4335.6</td><td>3663.3</td><td>1600.8</td><td>1445.2</td><td>1743.24</td><td>581.08</td><td>steady user</td></tr>
+<tr><td>10</td><td> 8</td><td>East Park</td><td>detached</td><td>3</td><td>4.0</td><td>4738.5</td><td>3532.8</td><td>2870.6</td><td>1579.5</td><td>1803.89</td><td>601.30</td><td>steady user</td></tr></tbody></table>
+</main>
+</body>
+</html>
