@@ -5,11 +5,30 @@
   --line: #d9e2ef;
   --panel: #ffffff;
   --canvas: #f6f8fb;
+  --header-bg: #172033;
+  --header-text: #ffffff;
+  --header-lede: #dbeafe;
+  --table-head: #edf2f7;
+  --table-head-text: #344054;
   --blue: #2563eb;
   --green: #10b981;
   --amber: #f59e0b;
   --red: #ef4444;
   --violet: #7c3aed;
+}
+
+body.theme-dark {
+  color-scheme: dark;
+  --ink: #e8edf7;
+  --muted: #9aa7bd;
+  --line: #334155;
+  --panel: #111827;
+  --canvas: #0b1220;
+  --header-bg: #020617;
+  --header-text: #f8fafc;
+  --header-lede: #93c5fd;
+  --table-head: #1e293b;
+  --table-head-text: #cbd5e1;
 }
 
 * {
@@ -24,8 +43,8 @@ body {
 }
 
 header {
-  background: #172033;
-  color: #ffffff;
+  background: var(--header-bg);
+  color: var(--header-text);
   padding: 42px 7vw 34px;
 }
 
@@ -63,7 +82,7 @@ a {
 
 .lede {
   max-width: 780px;
-  color: #dbeafe;
+  color: var(--header-lede);
 }
 
 .eyebrow {
@@ -161,7 +180,7 @@ button:hover,
 }
 
 .metric {
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 16px;
@@ -197,13 +216,38 @@ button:hover,
 .insight-list li {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--panel);
   padding: 13px;
   line-height: 1.45;
 }
 
+.impact {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.impact-high {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.impact-medium {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.impact-low {
+  background: rgba(37, 99, 235, 0.15);
+  color: #2563eb;
+}
+
 .figure {
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
@@ -229,7 +273,7 @@ button:hover,
   color: var(--muted);
   border: 1px dashed var(--line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--panel);
 }
 
 .table-wrap {
@@ -240,7 +284,7 @@ button:hover,
 table {
   width: 100%;
   border-collapse: collapse;
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
@@ -256,8 +300,8 @@ td {
 }
 
 th {
-  background: #edf2f7;
-  color: #344054;
+  background: var(--table-head);
+  color: var(--table-head-text);
 }
 
 tr:last-child td {

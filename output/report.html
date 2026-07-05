@@ -21,6 +21,8 @@
 <div class="upload-controls">
 <label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
 <button id="load-sample" type="button">Try Sample</button>
+<button id="export-analysis" type="button" disabled>Export JSON</button>
+<button id="theme-toggle" type="button" aria-pressed="false">Dark mode</button>
 <a class="template-link" href="../data/sample_energy_upload.csv">Template</a>
 </div>
 <div class="status" id="upload-status">Waiting for data.</div>
@@ -47,6 +49,11 @@
 <div id="monthly-table"></div>
 <h3>Group Table</h3>
 <div id="group-table"></div>
+<h3>Unusual Days</h3>
+<div class="chart" id="anomaly-chart"></div>
+<div id="anomaly-table"></div>
+<h3>Savings Opportunities</h3>
+<ul class="insight-list" id="recommendation-list"></ul>
 </section>
 
 <h2 class="demo-heading">Demo Portfolio</h2>

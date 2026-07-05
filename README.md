@@ -9,15 +9,21 @@ The main report opens in a browser and lets people upload their own CSV locally.
 Generate the demo portfolio report:
 
 ```sh
-Rscript R/run_analysis.R
+make demo
 open output/report.html
 ```
 
 Analyse your own CSV:
 
 ```sh
-Rscript R/run_analysis.R --input data/sample_energy_upload.csv --output output/custom-report.html
+make custom INPUT=data/sample_energy_upload.csv OUTPUT=output/custom-report.html
 open output/custom-report.html
+```
+
+Verify the full pipeline:
+
+```sh
+make verify
 ```
 
 ## CSV Columns
@@ -83,3 +89,15 @@ sqlite3 --version
 - Group comparison by neighbourhood or suburb
 - Cost rollups when a bill or cost column is supplied
 - Data quality summary with record, day, and household counts
+- Unusual usage day detection for spikes and dips
+- Savings opportunity recommendations for peak shifting, solar, and spend review
+- Browser dark mode and JSON export for personal analysis
+
+## Browser Tools
+
+The demo report includes:
+
+- CSV upload with immediate charts and tables
+- Dark mode toggle
+- JSON export of the current personal analysis
+- Sample data loader for quick testing

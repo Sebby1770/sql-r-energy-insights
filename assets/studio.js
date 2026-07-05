@@ -284,27 +284,93 @@
     }));
   }
 
+  function getAnomalies(rows) {
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const avgGrid = sum(rows, "grid") / rows.length;
+    return rows
+      .map((row) => {
+        const pct = avgGrid > 0 ? (row.grid / avgGrid) * 100 : 0;
+        let anomalyType = "normal";
+        if (row.grid >= avgGrid * 1.5) {
+          anomalyType = "high_spike";
+        } else if (row.grid <= avgGrid * 0.5) {
+          anomalyType = "low_dip";
+        }
+        return {
+          day: row.date.toISOString().slice(0, 10),
+          neighbourhood: row.neighbourhood,
+          household: row.household,
+          grid: row.grid,
+          consumed: row.consumed,
+          bill: row.bill,
+          pctOfAverage: pct,
+          anomalyType
+        };
+      })
+      .filter((row) => row.anomalyType !== "normal")
+      .sort((a, b) => Math.abs(b.grid - avgGrid) - Math.abs(a.grid - avgGrid));
+  }
+
+  function getRecommendations(totals) {
+    const recommendations = [];
+    const peakShare = totals.consumed > 0 ? (totals.peak / totals.consumed) * 100 : 0;
+    const solarOffset = totals.consumed > 0 ? (totals.solar / totals.consumed) * 100 : 0;
+    const avgDailyBill = totals.bill !== null && totals.days > 0 ? totals.bill / totals.days : null;
+
+    if (peakShare >= 35) {
+      recommendations.push({
+        opportunity: "Shift peak usage",
+        detail: `Peak is ${formatNumber(peakShare)}% of consumption. Moving 10% of peak into off-peak could reduce demand charges.`,
+        impact: peakShare >= 45 ? "high" : "medium"
+      });
+    }
+
+    if (solarOffset >= 10) {
+      recommendations.push({
+        opportunity: "Increase solar self-consumption",
+        detail: `Solar exports are ${formatNumber(solarOffset)}% of consumption. Battery or load shifting could capture more value.`,
+        impact: solarOffset >= 20 ? "high" : "medium"
+      });
+    }
+
+    if (avgDailyBill !== null) {
+      recommendations.push({
+        opportunity: "Review estimated spend",
+        detail: `Average daily bill is ${formatMoney(avgDailyBill)} across ${formatNumber(totals.days, 0)} days.`,
+        impact: avgDailyBill >= 8 ? "high" : avgDailyBill >= 5 ? "medium" : "low"
+      });
+    }
+
+    return recommendations;
+  }
+
   function getAnalysis(rows) {
     const monthly = aggregateBy(rows, (row) => row.month).sort((a, b) => a.key.localeCompare(b.key));
     const groups = aggregateBy(rows, (row) => row.neighbourhood).sort((a, b) => b.grid - a.grid);
     const billRows = rows.filter((row) => row.bill !== null).length;
+    const totals = {
+      records: rows.length,
+      days: new Set(rows.map((row) => row.date.toISOString().slice(0, 10))).size,
+      households: new Set(rows.map((row) => row.household)).size,
+      grid: sum(rows, "grid"),
+      solar: sum(rows, "solar"),
+      consumed: sum(rows, "consumed"),
+      peak: sum(rows, "peak"),
+      shoulder: sum(rows, "shoulder"),
+      offpeak: sum(rows, "offpeak"),
+      bill: billRows > 0 ? rows.reduce((total, row) => total + (row.bill || 0), 0) : null
+    };
 
     return {
       rows,
       monthly,
       groups,
-      totals: {
-        records: rows.length,
-        days: new Set(rows.map((row) => row.date.toISOString().slice(0, 10))).size,
-        households: new Set(rows.map((row) => row.household)).size,
-        grid: sum(rows, "grid"),
-        solar: sum(rows, "solar"),
-        consumed: sum(rows, "consumed"),
-        peak: sum(rows, "peak"),
-        shoulder: sum(rows, "shoulder"),
-        offpeak: sum(rows, "offpeak"),
-        bill: billRows > 0 ? rows.reduce((total, row) => total + (row.bill || 0), 0) : null
-      }
+      anomalies: getAnomalies(rows),
+      recommendations: getRecommendations(totals),
+      totals
     };
   }
 
@@ -423,6 +489,32 @@
     `);
   }
 
+  function drawAnomalyChart(anomalies) {
+    if (anomalies.length === 0) {
+      return emptyChart("No unusual usage days detected.");
+    }
+
+    const width = 760;
+    const height = 310;
+    const pad = { top: 30, right: 18, bottom: 72, left: 58 };
+    const maxValue = Math.max(...anomalies.map((item) => item.grid), 1);
+    const gap = 10;
+    const barWidth = Math.max(12, (width - pad.left - pad.right - gap * (anomalies.length - 1)) / anomalies.length);
+    const bars = anomalies.slice(0, 10).map((item, index) => {
+      const x = pad.left + index * (barWidth + gap);
+      const barHeight = (item.grid / maxValue) * (height - pad.top - pad.bottom);
+      const y = height - pad.bottom - barHeight;
+      const fill = item.anomalyType === "high_spike" ? colors.red : colors.blue;
+      return `
+        <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="4" fill="${fill}" />
+        <text x="${x + barWidth / 2}" y="${height - 48}" text-anchor="middle" font-size="11" fill="${colors.muted}">${escapeHtml(item.day)}</text>
+        <text x="${x + barWidth / 2}" y="${height - 28}" text-anchor="middle" font-size="11" fill="${colors.muted}">${escapeHtml(item.anomalyType)}</text>
+      `;
+    }).join("");
+
+    return svgFrame(width, height, bars);
+  }
+
   function drawCostChart(monthly) {
     const withBills = monthly.filter((item) => item.bill !== null);
     if (withBills.length === 0) {
@@ -473,6 +565,26 @@
     container.innerHTML = `<div class="table-wrap"><table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div>`;
   }
 
+  function renderRecommendations(recommendations) {
+    const container = $("#recommendation-list");
+    if (!container) {
+      return;
+    }
+
+    if (recommendations.length === 0) {
+      container.innerHTML = "<li>No major savings opportunities were flagged for this dataset.</li>";
+      return;
+    }
+
+    container.innerHTML = recommendations.map((item) => `
+      <li>
+        <strong>${escapeHtml(item.opportunity)}</strong>
+        ${escapeHtml(item.detail)}
+        <span class="impact impact-${escapeHtml(item.impact)}">${escapeHtml(item.impact)} impact</span>
+      </li>
+    `).join("");
+  }
+
   function renderTables(analysis) {
     renderTable($("#monthly-table"), analysis.monthly, [
       { key: "key", label: "Month", format: (value) => value },
@@ -489,10 +601,55 @@
       { key: "grid", label: "Grid import", format: (value) => `${formatNumber(value)} kWh` },
       { key: "solar", label: "Solar export", format: (value) => `${formatNumber(value)} kWh` }
     ]);
+
+    renderTable($("#anomaly-table"), analysis.anomalies, [
+      { key: "day", label: "Day", format: (value) => value },
+      { key: "neighbourhood", label: "Group", format: (value) => value },
+      { key: "grid", label: "Grid import", format: (value) => `${formatNumber(value)} kWh` },
+      { key: "pctOfAverage", label: "% of average", format: (value) => `${formatNumber(value)}%` },
+      { key: "anomalyType", label: "Type", format: (value) => value }
+    ]);
+  }
+
+  let latestAnalysis = null;
+
+  function exportAnalysis() {
+    if (!latestAnalysis) {
+      return;
+    }
+
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      totals: latestAnalysis.totals,
+      monthly: latestAnalysis.monthly,
+      groups: latestAnalysis.groups,
+      anomalies: latestAnalysis.anomalies,
+      recommendations: latestAnalysis.recommendations
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "energy-analysis.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function applyTheme(theme) {
+    const isDark = theme === "dark";
+    document.body.classList.toggle("theme-dark", isDark);
+    const toggle = $("#theme-toggle");
+    if (toggle) {
+      toggle.setAttribute("aria-pressed", String(isDark));
+      toggle.textContent = isDark ? "Light mode" : "Dark mode";
+    }
+    localStorage.setItem("gridscope-theme", theme);
   }
 
   function renderAnalysis(rows, label) {
     const analysis = getAnalysis(rows);
+    latestAnalysis = analysis;
     $("#personal-results").hidden = false;
     $("#upload-status").dataset.tone = "ok";
     $("#upload-status").textContent = `${label}: ${analysis.totals.records} records analysed.`;
@@ -501,7 +658,14 @@
     $("#monthly-chart").innerHTML = drawMonthlyChart(analysis.monthly);
     $("#mix-chart").innerHTML = drawLoadMix(analysis.groups);
     $("#cost-chart").innerHTML = drawCostChart(analysis.monthly);
+    $("#anomaly-chart").innerHTML = drawAnomalyChart(analysis.anomalies);
     renderTables(analysis);
+    renderRecommendations(analysis.recommendations);
+
+    const exportButton = $("#export-analysis");
+    if (exportButton) {
+      exportButton.disabled = false;
+    }
   }
 
   function handleText(text, label) {
@@ -518,8 +682,23 @@
   function init() {
     const input = $("#energy-csv");
     const sample = $("#load-sample");
+    const exportButton = $("#export-analysis");
+    const themeToggle = $("#theme-toggle");
     if (!input || !sample) {
       return;
+    }
+
+    applyTheme(localStorage.getItem("gridscope-theme") === "dark" ? "dark" : "light");
+
+    if (themeToggle) {
+      themeToggle.addEventListener("click", () => {
+        const nextTheme = document.body.classList.contains("theme-dark") ? "light" : "dark";
+        applyTheme(nextTheme);
+      });
+    }
+
+    if (exportButton) {
+      exportButton.addEventListener("click", exportAnalysis);
     }
 
     input.addEventListener("change", () => {

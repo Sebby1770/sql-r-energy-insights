@@ -429,6 +429,41 @@ plot_user_load_mix <- function(load_mix, path) {
   grid(nx = NA, ny = NULL, col = "#d9d9d9")
 }
 
+plot_user_anomalies <- function(anomalies, path) {
+  png(path, width = 1000, height = 650, res = 130)
+  old_par <- par(mar = c(7, 5, 4, 2) + 0.1)
+  on.exit({
+    par(old_par)
+    dev.off()
+  })
+
+  if (nrow(anomalies) == 0) {
+    plot.new()
+    text(0.5, 0.5, "No unusual usage days detected.", cex = 1.2)
+    return(invisible(NULL))
+  }
+
+  labels <- paste(anomalies$day, anomalies$anomaly_type, sep = "\n")
+  colors <- ifelse(anomalies$anomaly_type == "high_spike", "#ef4444", "#2563eb")
+  bars <- barplot(
+    anomalies$grid_import_kwh,
+    names.arg = labels,
+    col = colors,
+    border = NA,
+    las = 2,
+    ylab = "Grid import (kWh)",
+    main = "Unusual Usage Days"
+  )
+  text(
+    bars,
+    anomalies$grid_import_kwh,
+    labels = paste0(anomalies$pct_of_average, "%"),
+    pos = 3,
+    cex = 0.8
+  )
+  grid(nx = NA, ny = NULL, col = "#d9d9d9")
+}
+
 plot_user_group_summary <- function(groups, path) {
   png(path, width = 1000, height = 650, res = 130)
   old_par <- par(mar = c(7, 5, 4, 2) + 0.1)
@@ -449,7 +484,24 @@ plot_user_group_summary <- function(groups, path) {
   grid(nx = NA, ny = NULL, col = "#d9d9d9")
 }
 
-write_uploaded_report <- function(monthly, groups, load_mix, quality, path) {
+render_recommendation_cards <- function(recommendations) {
+  if (nrow(recommendations) == 0) {
+    return("<p>No major savings opportunities were flagged for this dataset.</p>")
+  }
+
+  cards <- apply(recommendations, 1, function(row) {
+    paste0(
+      "<li><strong>", html_escape(row[["opportunity"]]), "</strong> ",
+      html_escape(row[["detail"]]), " <span class=\"impact impact-",
+      html_escape(tolower(row[["potential_impact"]])), "\">",
+      html_escape(row[["potential_impact"]]), " impact</span></li>"
+    )
+  })
+
+  paste0("<ul class=\"insight-list\">", paste(cards, collapse = ""), "</ul>")
+}
+
+write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies, recommendations, path) {
   total_bill <- if (all(is.na(monthly$estimated_bill))) {
     NA_real_
   } else {
@@ -514,6 +566,21 @@ write_uploaded_report <- function(monthly, groups, load_mix, quality, path) {
     data_frame_to_html(groups, 10),
     "
 </section>
+
+<section class=\"report-section\">
+<h2>Unusual Days</h2>
+<div class=\"figure\"><img src=\"figures/user_anomalies.png\" alt=\"Unusual usage days chart\"></div>
+",
+    data_frame_to_html(anomalies, 10),
+    "
+</section>
+
+<section class=\"report-section\">
+<h2>Savings Opportunities</h2>
+",
+    render_recommendation_cards(recommendations),
+    "
+</section>
 </main>
 </body>
 </html>"
@@ -555,6 +622,8 @@ write_report <- function(monthly, efficiency, plans, load_mix, path) {
 <div class=\"upload-controls\">
 <label class=\"file-picker\" for=\"energy-csv\">Choose CSV<input id=\"energy-csv\" type=\"file\" accept=\".csv,text/csv\"></label>
 <button id=\"load-sample\" type=\"button\">Try Sample</button>
+<button id=\"export-analysis\" type=\"button\" disabled>Export JSON</button>
+<button id=\"theme-toggle\" type=\"button\" aria-pressed=\"false\">Dark mode</button>
 <a class=\"template-link\" href=\"../data/sample_energy_upload.csv\">Template</a>
 </div>
 <div class=\"status\" id=\"upload-status\">Waiting for data.</div>
@@ -581,6 +650,11 @@ write_report <- function(monthly, efficiency, plans, load_mix, path) {
 <div id=\"monthly-table\"></div>
 <h3>Group Table</h3>
 <div id=\"group-table\"></div>
+<h3>Unusual Days</h3>
+<div class=\"chart\" id=\"anomaly-chart\"></div>
+<div id=\"anomaly-table\"></div>
+<h3>Savings Opportunities</h3>
+<ul class=\"insight-list\" id=\"recommendation-list\"></ul>
 </section>
 
 <h2 class=\"demo-heading\">Demo Portfolio</h2>
@@ -668,7 +742,9 @@ run_custom_analysis <- function(root, sqlite, input_path, output_path) {
     user_monthly_usage = file.path(root, "sql", "queries", "user_monthly_usage.sql"),
     user_group_summary = file.path(root, "sql", "queries", "user_group_summary.sql"),
     user_load_mix = file.path(root, "sql", "queries", "user_load_mix.sql"),
-    user_quality = file.path(root, "sql", "queries", "user_quality.sql")
+    user_quality = file.path(root, "sql", "queries", "user_quality.sql"),
+    user_anomalies = file.path(root, "sql", "queries", "user_anomalies.sql"),
+    user_savings_opportunities = file.path(root, "sql", "queries", "user_savings_opportunities.sql")
   )
 
   tables <- lapply(query_files, function(path) query_to_frame(sqlite, db_path, path))
@@ -680,12 +756,15 @@ run_custom_analysis <- function(root, sqlite, input_path, output_path) {
   plot_monthly_usage(tables$user_monthly_usage, file.path(figure_dir, "user_monthly_usage.png"))
   plot_user_group_summary(tables$user_group_summary, file.path(figure_dir, "user_group_summary.png"))
   plot_user_load_mix(tables$user_load_mix, file.path(figure_dir, "user_load_mix.png"))
+  plot_user_anomalies(tables$user_anomalies, file.path(figure_dir, "user_anomalies.png"))
 
   write_uploaded_report(
     monthly = tables$user_monthly_usage,
     groups = tables$user_group_summary,
     load_mix = tables$user_load_mix,
     quality = tables$user_quality[1, ],
+    anomalies = tables$user_anomalies,
+    recommendations = tables$user_savings_opportunities,
     path = output_path
   )
 
