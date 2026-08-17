@@ -274,6 +274,45 @@ html_escape <- function(x) {
   x
 }
 
+js_embed_csv <- function(text) {
+  x <- paste(text, collapse = "\n")
+  x <- gsub("\\", "\\\\", x, fixed = TRUE)
+  x <- gsub("\"", "\\\"", x, fixed = TRUE)
+  x <- gsub("\r", "\\r", x, fixed = TRUE)
+  x <- gsub("\n", "\\n", x, fixed = TRUE)
+  x <- gsub("<", "\\u003c", x, fixed = TRUE)
+  paste0("\"", x, "\"")
+}
+
+load_studio_workspace <- function(root, template_href = "../data/sample_energy_upload.csv") {
+  path <- file.path(root, "assets", "studio-panel.html")
+  html <- paste(readLines(path, warn = FALSE), collapse = "\n")
+  html <- gsub("{{TEMPLATE_HREF}}", template_href, html, fixed = TRUE)
+  html <- gsub("{{TARIFF_PEAK}}", "0.40", html, fixed = TRUE)
+  html <- gsub("{{TARIFF_SHOULDER}}", "0.28", html, fixed = TRUE)
+  html <- gsub("{{TARIFF_OFFPEAK}}", "0.18", html, fixed = TRUE)
+  html <- gsub("{{TARIFF_EXPORT}}", "0.08", html, fixed = TRUE)
+  html
+}
+
+studio_scripts_html <- function(source_csv = NULL, label = "Uploaded CSV") {
+  bootstrap <- ""
+  if (!is.null(source_csv) && nzchar(source_csv)) {
+    bootstrap <- paste0(
+      "<script>window.GRIDSCOPE_BOOTSTRAP = {csv: ",
+      js_embed_csv(source_csv),
+      ", label: ",
+      js_embed_csv(label),
+      "};</script>\n"
+    )
+  }
+  paste0(
+    bootstrap,
+    "<script src=\"../assets/analysis.js\"></script>\n",
+    "<script src=\"../assets/studio.js\"></script>\n"
+  )
+}
+
 data_frame_to_html <- function(data, limit = 8) {
   data <- head(data, limit)
   header <- paste0("<th>", html_escape(names(data)), "</th>", collapse = "")
@@ -501,7 +540,7 @@ render_recommendation_cards <- function(recommendations) {
   paste0("<ul class=\"insight-list\">", paste(cards, collapse = ""), "</ul>")
 }
 
-write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies, recommendations, path) {
+write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies, recommendations, path, root, source_csv = "") {
   total_bill <- if (all(is.na(monthly$estimated_bill))) {
     NA_real_
   } else {
@@ -521,10 +560,15 @@ write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies,
 </head>
 <body>
 <header>
+<p class=\"eyebrow\">GridScope 0.3.0</p>
 <h1>", APP_TITLE, "</h1>
-<p class=\"lede\">Personal energy analysis generated from your uploaded CSV.</p>
+<p class=\"lede\">Personal energy analysis generated from your uploaded CSV. Use the studio to filter households, rebill a tariff, compare another file, and export the current table.</p>
 </header>
 <main>
+",
+    load_studio_workspace(root),
+    "
+<h2 class=\"demo-heading\">Pipeline snapshot</h2>
 <section class=\"metrics\">
 <div class=\"metric\"><span>Records</span><strong>", quality$records, "</strong></div>
 <div class=\"metric\"><span>Days covered</span><strong>", quality$days, "</strong></div>
@@ -582,7 +626,9 @@ write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies,
     "
 </section>
 </main>
-</body>
+",
+    studio_scripts_html(source_csv, "Uploaded CSV"),
+    "</body>
 </html>"
   )
 
@@ -590,7 +636,7 @@ write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies,
   message("Wrote custom report: ", path)
 }
 
-write_report <- function(monthly, efficiency, plans, load_mix, path) {
+write_report <- function(monthly, efficiency, plans, load_mix, path, root) {
   total_import <- sum(monthly$grid_import_kwh)
   total_solar <- sum(monthly$solar_export_kwh)
   total_bill <- sum(monthly$estimated_bill)
@@ -609,54 +655,14 @@ write_report <- function(monthly, efficiency, plans, load_mix, path) {
 </head>
 <body>
 <header>
+<p class=\"eyebrow\">GridScope 0.3.0</p>
 <h1>", APP_TITLE, "</h1>
 <p class=\"lede\">Upload energy data, review clear charts, and spot cost and demand patterns without turning the page into a spreadsheet cave.</p>
 </header>
 <main>
-<section class=\"studio-panel\" id=\"upload-studio\">
-<div>
-<p class=\"eyebrow\">Personal workspace</p>
-<h2>Analyse Your CSV</h2>
-<p>Use a billing or meter file with a date column and kWh columns. Optional group, solar, and cost columns unlock richer comparisons.</p>
-</div>
-<div class=\"upload-controls\">
-<label class=\"file-picker\" for=\"energy-csv\">Choose CSV<input id=\"energy-csv\" type=\"file\" accept=\".csv,text/csv\"></label>
-<button id=\"load-sample\" type=\"button\">Try Sample</button>
-<button id=\"export-analysis\" type=\"button\" disabled>Export JSON</button>
-<button id=\"theme-toggle\" type=\"button\" aria-pressed=\"false\">Dark mode</button>
-<a class=\"template-link\" href=\"../data/sample_energy_upload.csv\">Template</a>
-</div>
-<div class=\"status\" id=\"upload-status\">Waiting for data.</div>
-</section>
-
-<section class=\"report-section\" id=\"personal-results\" hidden>
-<h2>Personal Analysis</h2>
-<div class=\"metrics\" id=\"personal-metrics\"></div>
-<h3>Signals</h3>
-<ul class=\"insight-list\" id=\"personal-insights\"></ul>
-<div class=\"results-grid\">
-<div>
-<h3>Monthly Demand</h3>
-<div class=\"chart\" id=\"monthly-chart\"></div>
-</div>
-<div>
-<h3>Cost</h3>
-<div class=\"chart\" id=\"cost-chart\"></div>
-</div>
-</div>
-<h3>Load Mix</h3>
-<div class=\"chart\" id=\"mix-chart\"></div>
-<h3>Monthly Table</h3>
-<div id=\"monthly-table\"></div>
-<h3>Group Table</h3>
-<div id=\"group-table\"></div>
-<h3>Unusual Days</h3>
-<div class=\"chart\" id=\"anomaly-chart\"></div>
-<div id=\"anomaly-table\"></div>
-<h3>Savings Opportunities</h3>
-<ul class=\"insight-list\" id=\"recommendation-list\"></ul>
-</section>
-
+",
+    load_studio_workspace(root),
+    "
 <h2 class=\"demo-heading\">Demo Portfolio</h2>
 <section class=\"metrics\">
 <div class=\"metric\"><span>Annual grid import</span><strong>", number(total_import, 1), " kWh</strong></div>
@@ -690,8 +696,9 @@ write_report <- function(monthly, efficiency, plans, load_mix, path) {
     data_frame_to_html(efficiency, 10),
     "
 </main>
-<script src=\"../assets/studio.js\"></script>
-</body>
+",
+    studio_scripts_html(),
+    "</body>
 </html>"
   )
 
@@ -765,7 +772,9 @@ run_custom_analysis <- function(root, sqlite, input_path, output_path) {
     quality = tables$user_quality[1, ],
     anomalies = tables$user_anomalies,
     recommendations = tables$user_savings_opportunities,
-    path = output_path
+    path = output_path,
+    root = root,
+    source_csv = paste(readLines(input_path, warn = FALSE), collapse = "\n")
   )
 
   message("Done. Open ", output_path, " to view the report.")
@@ -824,7 +833,8 @@ main <- function() {
     efficiency = tables$household_efficiency,
     plans = tables$plan_comparison,
     load_mix = tables$neighbourhood_load_mix,
-    path = file.path(root, "output", "report.html")
+    path = file.path(root, "output", "report.html"),
+    root = root
   )
 
   message("Done. Open output/report.html to view the report.")

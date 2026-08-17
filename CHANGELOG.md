@@ -2,6 +2,24 @@
 
 All notable changes to GridScope Studio are documented in this file.
 
+## [0.3.0] - 2026-08-17
+
+### Added
+- Python analysis engine and CLI (`python3 -m gridscope`) that does not need R.
+- `make demo-py`, `make test`, and `make verify-py` targets.
+- Tariff bill math (peak / shoulder / off-peak / export credit) with live studio rebill.
+- Dataset compare: delta kWh, delta bill, and shared days.
+- Household filter when a file contains multiple `household_id` values.
+- Weekday heatmap (month buckets, or hour when a timestamp hour is present).
+- CSV export of the current monthly analysis table.
+- pytest coverage for parse, anomalies, tariff bills, compare, and missing columns.
+- GitHub Actions job that always runs pytest on Python 3.11.
+
+### Changed
+- Browser analysis extracted to `assets/analysis.js`; formulas stay aligned with `gridscope/analysis.py`.
+- R and Python HTML reports share `assets/studio-panel.html` so both UIs get the new controls.
+- R pipeline job in CI is `continue-on-error` so the Python tests remain the required gate.
+
 ## [0.2.0] - 2026-07-06
 
 ### Added

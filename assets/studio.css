@@ -48,6 +48,10 @@ header {
   padding: 42px 7vw 34px;
 }
 
+header .eyebrow {
+  color: var(--header-lede);
+}
+
 main {
   max-width: 1160px;
   margin: 0 auto;
@@ -133,7 +137,7 @@ button,
   gap: 8px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: #ffffff;
+  background: var(--panel);
   color: var(--ink);
   font-weight: 700;
   padding: 9px 13px;
@@ -145,6 +149,66 @@ button,
   background: var(--blue);
   border-color: var(--blue);
   color: #ffffff;
+}
+
+.file-picker-secondary {
+  background: var(--violet);
+  border-color: var(--violet);
+}
+
+.studio-tools {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 18px;
+}
+
+.tool-block label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.tariff-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.tariff-editor legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+
+.tariff-editor input,
+.studio-tools select {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+  color: var(--ink);
+  padding: 6px 8px;
+  font-weight: 700;
+}
+
+.chart-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: -4px;
+}
+
+.compare-metrics .delta-up {
+  color: var(--red);
+}
+
+.compare-metrics .delta-down {
+  color: var(--green);
 }
 
 button:hover,

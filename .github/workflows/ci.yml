@@ -2,14 +2,38 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
   pull_request:
-    branches: [main, master]
 
 jobs:
-  analyse:
+  test:
+    name: Python engine
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test extras
+        run: python -m pip install --upgrade pip && pip install pytest
+
+      - name: Run pytest
+        run: python -m pytest -q
+
+      - name: Build Python report
+        run: make demo-py
+
+      - name: Verify Python outputs
+        run: |
+          test -f output/py-report.html
+          test -f output/tables/py_monthly_usage.csv
+          test -f output/tables/py_anomalies.csv
+
+  analyse:
+    name: R pipeline
+    runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 

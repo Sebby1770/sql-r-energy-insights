@@ -2,6 +2,10 @@
 .Rhistory
 .RData
 .Rproj.user/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.venv/
 
 # Generated local database; recreate with R/run_analysis.R.
 data/*.sqlite

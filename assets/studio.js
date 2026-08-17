@@ -31,6 +31,12 @@
   };
 
   const $ = (selector) => document.querySelector(selector);
+  const GS = () => {
+    if (!window.GridScope) {
+      throw new Error("assets/analysis.js must load before studio.js");
+    }
+    return window.GridScope;
+  };
 
   function escapeHtml(value) {
     return String(value)
@@ -40,372 +46,113 @@
       .replace(/"/g, "&quot;");
   }
 
-  function formatNumber(value, digits = 1) {
-    if (!Number.isFinite(value)) {
-      return "0";
-    }
-    return value.toLocaleString(undefined, {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits
-    });
+  const state = {
+    primaryRows: null,
+    compareRows: null,
+    label: "",
+    household: "all",
+    latestAnalysis: null
+  };
+
+  function readTariff() {
+    const defaults = GS().DEFAULT_TARIFF;
+    const num = (id, fallback) => {
+      const el = document.getElementById(id);
+      if (!el) {
+        return fallback;
+      }
+      const parsed = Number(el.value);
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+    };
+    return {
+      peak: num("tariff-peak", defaults.peak),
+      shoulder: num("tariff-shoulder", defaults.shoulder),
+      offpeak: num("tariff-offpeak", defaults.offpeak),
+      export_credit: num("tariff-export", defaults.export_credit)
+    };
   }
 
-  function formatMoney(value) {
-    if (!Number.isFinite(value)) {
-      return "Not supplied";
-    }
-    return value.toLocaleString(undefined, {
-      style: "currency",
-      currency: "AUD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  }
-
-  function parseCsv(text) {
-    const rows = [];
-    let row = [];
-    let field = "";
-    let quoted = false;
-
-    for (let i = 0; i < text.length; i += 1) {
-      const char = text[i];
-      const next = text[i + 1];
-
-      if (char === "\"") {
-        if (quoted && next === "\"") {
-          field += "\"";
-          i += 1;
-        } else {
-          quoted = !quoted;
-        }
-      } else if (char === "," && !quoted) {
-        row.push(field);
-        field = "";
-      } else if ((char === "\n" || char === "\r") && !quoted) {
-        if (char === "\r" && next === "\n") {
-          i += 1;
-        }
-        row.push(field);
-        if (row.some((cell) => cell.trim() !== "")) {
-          rows.push(row);
-        }
-        row = [];
-        field = "";
-      } else {
-        field += char;
+  function applyTariffToForm(tariff) {
+    const rates = GS().coerceTariff(tariff);
+    const mapping = {
+      "tariff-peak": rates.peak,
+      "tariff-shoulder": rates.shoulder,
+      "tariff-offpeak": rates.offpeak,
+      "tariff-export": rates.export_credit
+    };
+    for (const [id, value] of Object.entries(mapping)) {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) {
+        el.value = Number(value).toFixed(2);
       }
     }
-
-    row.push(field);
-    if (row.some((cell) => cell.trim() !== "")) {
-      rows.push(row);
-    }
-
-    return rows;
   }
 
-  function normaliseKey(value) {
-    return String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  function currentRows() {
+    return GS().filterHousehold(state.primaryRows || [], state.household);
   }
 
-  function pickColumn(headers, candidates) {
-    for (const candidate of candidates) {
-      const index = headers.indexOf(candidate);
-      if (index !== -1) {
-        return index;
-      }
-    }
-    return -1;
-  }
-
-  function toNumber(value) {
-    const cleaned = String(value || "").replace(/[$,\s]/g, "");
-    if (cleaned === "") {
-      return 0;
-    }
-    const parsed = Number(cleaned);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  function optionalNumber(value) {
-    const cleaned = String(value || "").replace(/[$,\s]/g, "");
-    if (cleaned === "") {
+  function currentCompareRows() {
+    if (!state.compareRows) {
       return null;
     }
-    const parsed = Number(cleaned);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  function parseDate(value) {
-    const raw = String(value || "").trim();
-    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
-      const date = new Date(`${raw.slice(0, 10)}T00:00:00`);
-      return Number.isNaN(date.getTime()) ? null : date;
+    if (state.household === "all") {
+      return state.compareRows;
     }
-
-    const parts = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-    if (parts) {
-      const first = Number(parts[1]);
-      const second = Number(parts[2]);
-      const year = Number(parts[3].length === 2 ? `20${parts[3]}` : parts[3]);
-      const day = first > 12 ? first : second;
-      const month = first > 12 ? second : first;
-      const date = new Date(year, month - 1, day);
-      return Number.isNaN(date.getTime()) ? null : date;
-    }
-
-    const date = new Date(raw);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  function monthKey(date) {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-  }
-
-  function normaliseRows(text) {
-    const parsed = parseCsv(text);
-    if (parsed.length < 2) {
-      throw new Error("The CSV needs a header row and at least one data row.");
-    }
-
-    const headers = parsed[0].map(normaliseKey);
-    const col = {
-      day: pickColumn(headers, ["day", "date", "reading_date", "timestamp", "meter_date"]),
-      household: pickColumn(headers, ["household_id", "account_id", "site_id", "meter_id", "customer_id"]),
-      neighbourhood: pickColumn(headers, ["neighbourhood", "neighborhood", "suburb", "area", "region"]),
-      peak: pickColumn(headers, ["peak_kwh", "peak", "peak_usage_kwh"]),
-      shoulder: pickColumn(headers, ["shoulder_kwh", "shoulder", "shoulder_usage_kwh"]),
-      offpeak: pickColumn(headers, ["offpeak_kwh", "off_peak_kwh", "offpeak", "off_peak"]),
-      solar: pickColumn(headers, ["solar_export_kwh", "solar_kwh", "export_kwh", "solar_export"]),
-      grid: pickColumn(headers, ["grid_import_kwh", "import_kwh", "grid_kwh", "usage_kwh", "consumption_kwh"]),
-      total: pickColumn(headers, ["total_kwh", "consumed_kwh", "energy_kwh", "kwh"]),
-      bill: pickColumn(headers, ["estimated_bill", "bill", "cost", "amount", "charge"])
-    };
-
-    if (col.day === -1) {
-      throw new Error("Add a date column named day, date, reading_date, or timestamp.");
-    }
-
-    const hasTieredUsage = col.peak !== -1 || col.shoulder !== -1 || col.offpeak !== -1;
-    const hasTotalUsage = col.grid !== -1 || col.total !== -1;
-    if (!hasTieredUsage && !hasTotalUsage) {
-      throw new Error("Add energy columns such as grid_import_kwh, total_kwh, peak_kwh, shoulder_kwh, or offpeak_kwh.");
-    }
-
-    const rows = [];
-    for (let i = 1; i < parsed.length; i += 1) {
-      const raw = parsed[i];
-      const date = parseDate(raw[col.day]);
-      if (!date) {
-        continue;
-      }
-
-      const suppliedTotal = col.total !== -1 ? toNumber(raw[col.total]) : toNumber(raw[col.grid]);
-      let peak = col.peak !== -1 ? toNumber(raw[col.peak]) : 0;
-      let shoulder = col.shoulder !== -1 ? toNumber(raw[col.shoulder]) : 0;
-      let offpeak = col.offpeak !== -1 ? toNumber(raw[col.offpeak]) : 0;
-
-      if (!hasTieredUsage && suppliedTotal > 0) {
-        peak = suppliedTotal * 0.44;
-        shoulder = suppliedTotal * 0.34;
-        offpeak = suppliedTotal * 0.22;
-      }
-
-      const consumed = peak + shoulder + offpeak;
-      const solar = col.solar !== -1 ? toNumber(raw[col.solar]) : 0;
-      const grid = col.grid !== -1 ? toNumber(raw[col.grid]) : Math.max(0, consumed - solar);
-      const bill = col.bill !== -1 ? optionalNumber(raw[col.bill]) : null;
-
-      rows.push({
-        date,
-        month: monthKey(date),
-        household: col.household !== -1 && raw[col.household] ? String(raw[col.household]).trim() : "Unknown",
-        neighbourhood: col.neighbourhood !== -1 && raw[col.neighbourhood] ? String(raw[col.neighbourhood]).trim() : "Ungrouped",
-        peak,
-        shoulder,
-        offpeak,
-        solar,
-        grid,
-        bill,
-        consumed
-      });
-    }
-
-    if (rows.length === 0) {
-      throw new Error("No valid dated rows were found.");
-    }
-
-    return rows;
-  }
-
-  function sum(rows, key) {
-    return rows.reduce((total, row) => total + (Number(row[key]) || 0), 0);
-  }
-
-  function aggregateBy(rows, keyFn) {
-    const groups = new Map();
-    for (const row of rows) {
-      const key = keyFn(row);
-      if (!groups.has(key)) {
-        groups.set(key, {
-          key,
-          records: 0,
-          households: new Set(),
-          peak: 0,
-          shoulder: 0,
-          offpeak: 0,
-          solar: 0,
-          grid: 0,
-          bill: 0,
-          billRows: 0,
-          consumed: 0
-        });
-      }
-      const group = groups.get(key);
-      group.records += 1;
-      group.households.add(row.household);
-      group.peak += row.peak;
-      group.shoulder += row.shoulder;
-      group.offpeak += row.offpeak;
-      group.solar += row.solar;
-      group.grid += row.grid;
-      group.consumed += row.consumed;
-      if (row.bill !== null) {
-        group.bill += row.bill;
-        group.billRows += 1;
-      }
-    }
-
-    return Array.from(groups.values()).map((group) => ({
-      ...group,
-      households: group.households.size,
-      bill: group.billRows > 0 ? group.bill : null
-    }));
-  }
-
-  function getAnomalies(rows) {
-    if (rows.length === 0) {
-      return [];
-    }
-
-    const avgGrid = sum(rows, "grid") / rows.length;
-    return rows
-      .map((row) => {
-        const pct = avgGrid > 0 ? (row.grid / avgGrid) * 100 : 0;
-        let anomalyType = "normal";
-        if (row.grid >= avgGrid * 1.5) {
-          anomalyType = "high_spike";
-        } else if (row.grid <= avgGrid * 0.5) {
-          anomalyType = "low_dip";
-        }
-        return {
-          day: row.date.toISOString().slice(0, 10),
-          neighbourhood: row.neighbourhood,
-          household: row.household,
-          grid: row.grid,
-          consumed: row.consumed,
-          bill: row.bill,
-          pctOfAverage: pct,
-          anomalyType
-        };
-      })
-      .filter((row) => row.anomalyType !== "normal")
-      .sort((a, b) => Math.abs(b.grid - avgGrid) - Math.abs(a.grid - avgGrid));
-  }
-
-  function getRecommendations(totals) {
-    const recommendations = [];
-    const peakShare = totals.consumed > 0 ? (totals.peak / totals.consumed) * 100 : 0;
-    const solarOffset = totals.consumed > 0 ? (totals.solar / totals.consumed) * 100 : 0;
-    const avgDailyBill = totals.bill !== null && totals.days > 0 ? totals.bill / totals.days : null;
-
-    if (peakShare >= 35) {
-      recommendations.push({
-        opportunity: "Shift peak usage",
-        detail: `Peak is ${formatNumber(peakShare)}% of consumption. Moving 10% of peak into off-peak could reduce demand charges.`,
-        impact: peakShare >= 45 ? "high" : "medium"
-      });
-    }
-
-    if (solarOffset >= 10) {
-      recommendations.push({
-        opportunity: "Increase solar self-consumption",
-        detail: `Solar exports are ${formatNumber(solarOffset)}% of consumption. Battery or load shifting could capture more value.`,
-        impact: solarOffset >= 20 ? "high" : "medium"
-      });
-    }
-
-    if (avgDailyBill !== null) {
-      recommendations.push({
-        opportunity: "Review estimated spend",
-        detail: `Average daily bill is ${formatMoney(avgDailyBill)} across ${formatNumber(totals.days, 0)} days.`,
-        impact: avgDailyBill >= 8 ? "high" : avgDailyBill >= 5 ? "medium" : "low"
-      });
-    }
-
-    return recommendations;
-  }
-
-  function getAnalysis(rows) {
-    const monthly = aggregateBy(rows, (row) => row.month).sort((a, b) => a.key.localeCompare(b.key));
-    const groups = aggregateBy(rows, (row) => row.neighbourhood).sort((a, b) => b.grid - a.grid);
-    const billRows = rows.filter((row) => row.bill !== null).length;
-    const totals = {
-      records: rows.length,
-      days: new Set(rows.map((row) => row.date.toISOString().slice(0, 10))).size,
-      households: new Set(rows.map((row) => row.household)).size,
-      grid: sum(rows, "grid"),
-      solar: sum(rows, "solar"),
-      consumed: sum(rows, "consumed"),
-      peak: sum(rows, "peak"),
-      shoulder: sum(rows, "shoulder"),
-      offpeak: sum(rows, "offpeak"),
-      bill: billRows > 0 ? rows.reduce((total, row) => total + (row.bill || 0), 0) : null
-    };
-
-    return {
-      rows,
-      monthly,
-      groups,
-      anomalies: getAnomalies(rows),
-      recommendations: getRecommendations(totals),
-      totals
-    };
-  }
-
-  function makeInsights(analysis) {
-    const monthly = analysis.monthly;
-    const totals = analysis.totals;
-    const highest = monthly.reduce((best, item) => (item.grid > best.grid ? item : best), monthly[0]);
-    const lowest = monthly.reduce((best, item) => (item.grid < best.grid ? item : best), monthly[0]);
-    const solarOffset = totals.consumed > 0 ? (totals.solar / totals.consumed) * 100 : 0;
-    const peakShare = totals.consumed > 0 ? (totals.peak / totals.consumed) * 100 : 0;
-    const billInsight = totals.bill === null
-      ? "No bill column was supplied, so cost analysis is skipped."
-      : `Estimated spend across the file is ${formatMoney(totals.bill)}.`;
-
-    return [
-      `Highest grid import month: ${highest.key} at ${formatNumber(highest.grid)} kWh.`,
-      `Lowest grid import month: ${lowest.key} at ${formatNumber(lowest.grid)} kWh.`,
-      `Solar exports equal ${formatNumber(solarOffset)}% of recorded consumption.`,
-      `Peak usage is ${formatNumber(peakShare)}% of recorded consumption.`,
-      billInsight
-    ];
+    const filtered = GS().filterHousehold(state.compareRows, state.household);
+    return filtered.length ? filtered : state.compareRows;
   }
 
   function metric(label, value) {
     return `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
   }
 
+  function deltaClass(value) {
+    if (!Number.isFinite(value) || Math.abs(value) < 1e-9) {
+      return "";
+    }
+    return value > 0 ? "delta-up" : "delta-down";
+  }
+
+  function deltaMetric(label, value, formatted) {
+    return `<div class="metric"><span>${escapeHtml(label)}</span><strong class="${deltaClass(value)}">${escapeHtml(formatted)}</strong></div>`;
+  }
+
   function renderMetrics(analysis) {
     const totals = analysis.totals;
-    $("#personal-metrics").innerHTML = [
-      metric("Records", formatNumber(totals.records, 0)),
-      metric("Days covered", formatNumber(totals.days, 0)),
-      metric("Grid import", `${formatNumber(totals.grid)} kWh`),
-      metric("Solar export", `${formatNumber(totals.solar)} kWh`),
-      metric("Estimated cost", formatMoney(totals.bill))
+    const target = $("#personal-metrics");
+    if (!target) {
+      return;
+    }
+    target.innerHTML = [
+      metric("Records", GS().formatNumber(totals.records, 0)),
+      metric("Days covered", GS().formatNumber(totals.days, 0)),
+      metric("Households", GS().formatNumber(totals.households, 0)),
+      metric("Grid import", `${GS().formatNumber(totals.grid)} kWh`),
+      metric("Solar export", `${GS().formatNumber(totals.solar)} kWh`),
+      metric("CSV cost", GS().formatMoney(totals.bill)),
+      metric("Tariff bill", GS().formatMoney(totals.tariffBill))
+    ].join("");
+  }
+
+  function renderCompare(comparison) {
+    const target = $("#compare-metrics");
+    if (!target) {
+      return;
+    }
+    if (!comparison) {
+      target.hidden = true;
+      target.innerHTML = "";
+      return;
+    }
+    target.hidden = false;
+    const signedKwh = `${comparison.deltaKwh > 0 ? "+" : ""}${GS().formatNumber(comparison.deltaKwh)} kWh`;
+    const signedBill = `${comparison.deltaBill > 0 ? "+" : ""}${GS().formatMoney(comparison.deltaBill)}`;
+    target.innerHTML = [
+      deltaMetric("Δ grid import", comparison.deltaKwh, signedKwh),
+      deltaMetric("Δ tariff bill", comparison.deltaBill, signedBill),
+      metric("Shared days", GS().formatNumber(comparison.sharedDays, 0)),
+      deltaMetric("Shared-day Δ kWh", comparison.sharedDeltaKwh, `${comparison.sharedDeltaKwh > 0 ? "+" : ""}${GS().formatNumber(comparison.sharedDeltaKwh)} kWh`)
     ].join("");
   }
 
@@ -475,7 +222,7 @@
         return rect;
       }).join("");
       return `
-        <text x="0" y="${y + 15}" font-size="13" fill="${colors.ink}">${escapeHtml(group.key)}</text>
+        <text x="0" y="${y + 15}" font-size="13" fill="currentColor">${escapeHtml(group.key)}</text>
         ${rects}
       `;
     }).join("");
@@ -499,8 +246,9 @@
     const pad = { top: 30, right: 18, bottom: 72, left: 58 };
     const maxValue = Math.max(...anomalies.map((item) => item.grid), 1);
     const gap = 10;
-    const barWidth = Math.max(12, (width - pad.left - pad.right - gap * (anomalies.length - 1)) / anomalies.length);
-    const bars = anomalies.slice(0, 10).map((item, index) => {
+    const visible = anomalies.slice(0, 10);
+    const barWidth = Math.max(12, (width - pad.left - pad.right - gap * (visible.length - 1)) / visible.length);
+    const bars = visible.map((item, index) => {
       const x = pad.left + index * (barWidth + gap);
       const barHeight = (item.grid / maxValue) * (height - pad.top - pad.bottom);
       const y = height - pad.bottom - barHeight;
@@ -516,20 +264,20 @@
   }
 
   function drawCostChart(monthly) {
-    const withBills = monthly.filter((item) => item.bill !== null);
-    if (withBills.length === 0) {
-      return emptyChart("No bill column supplied.");
+    if (monthly.length === 0) {
+      return emptyChart("No monthly data.");
     }
 
     const width = 760;
     const height = 310;
     const pad = { top: 30, right: 18, bottom: 54, left: 58 };
-    const maxValue = Math.max(...withBills.map((item) => item.bill), 1);
+    const maxValue = Math.max(...monthly.map((item) => Math.abs(item.tariffBill || 0)), 1);
     const gap = 12;
-    const barWidth = Math.max(14, (width - pad.left - pad.right - gap * (withBills.length - 1)) / withBills.length);
-    const bars = withBills.map((item, index) => {
+    const barWidth = Math.max(14, (width - pad.left - pad.right - gap * (monthly.length - 1)) / monthly.length);
+    const bars = monthly.map((item, index) => {
       const x = pad.left + index * (barWidth + gap);
-      const barHeight = (item.bill / maxValue) * (height - pad.top - pad.bottom);
+      const value = item.tariffBill || 0;
+      const barHeight = (Math.abs(value) / maxValue) * (height - pad.top - pad.bottom);
       const y = height - pad.bottom - barHeight;
       return `
         <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="4" fill="${colors.violet}" />
@@ -544,13 +292,82 @@
     return svgFrame(width, height, `${guides}${bars}`);
   }
 
+  function mixColor(t) {
+    const clamp = Math.max(0, Math.min(1, t));
+    const from = [226, 232, 240];
+    const to = [239, 68, 68];
+    const channel = (index) => Math.round(from[index] + (to[index] - from[index]) * clamp);
+    return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
+  }
+
+  function drawHeatmap(heatmap) {
+    if (!heatmap || !heatmap.buckets.length) {
+      return emptyChart("No heatmap data.");
+    }
+
+    const cellW = 36;
+    const cellH = 28;
+    const left = 52;
+    const top = 36;
+    const width = Math.max(760, left + heatmap.buckets.length * cellW + 24);
+    const height = top + heatmap.weekdays.length * cellH + 36;
+    const maxGrid = heatmap.maxGrid || heatmap.max_grid || 1;
+
+    const header = heatmap.buckets.map((bucket, index) => (
+      `<text x="${left + index * cellW + cellW / 2}" y="20" text-anchor="middle" font-size="10" fill="${colors.muted}">${escapeHtml(String(bucket))}</text>`
+    )).join("");
+
+    const body = heatmap.weekdays.map((weekday, rowIndex) => {
+      const label = `<text x="4" y="${top + rowIndex * cellH + 18}" font-size="12" fill="currentColor">${escapeHtml(weekday)}</text>`;
+      const cells = heatmap.buckets.map((bucket, colIndex) => {
+        const cell = heatmap.cells.find((item) => item.weekday === weekday && item.bucket === bucket);
+        const grid = cell ? cell.grid : 0;
+        const fill = grid <= 0 ? "rgba(148, 163, 184, 0.18)" : mixColor(grid / maxGrid);
+        return `<rect x="${left + colIndex * cellW + 2}" y="${top + rowIndex * cellH + 2}" width="${cellW - 4}" height="${cellH - 4}" rx="4" fill="${fill}"><title>${escapeHtml(weekday)} ${escapeHtml(String(bucket))}: ${GS().formatNumber(grid)} kWh</title></rect>`;
+      }).join("");
+      return label + cells;
+    }).join("");
+
+    return svgFrame(width, height, `${header}${body}`);
+  }
+
+  function makeInsights(analysis) {
+    const monthly = analysis.monthly;
+    const totals = analysis.totals;
+    if (!monthly.length) {
+      return ["No dated rows to summarise."];
+    }
+    const highest = monthly.reduce((best, item) => (item.grid > best.grid ? item : best), monthly[0]);
+    const lowest = monthly.reduce((best, item) => (item.grid < best.grid ? item : best), monthly[0]);
+    const solarOffset = totals.consumed > 0 ? (totals.solar / totals.consumed) * 100 : 0;
+    const peakShare = totals.consumed > 0 ? (totals.peak / totals.consumed) * 100 : 0;
+    const billInsight = totals.bill === null
+      ? `No bill column was supplied. Tariff bill is ${GS().formatMoney(totals.tariffBill)}.`
+      : `Estimated CSV spend is ${GS().formatMoney(totals.bill)}. Tariff bill is ${GS().formatMoney(totals.tariffBill)}.`;
+
+    return [
+      `Highest grid import month: ${highest.key} at ${GS().formatNumber(highest.grid)} kWh.`,
+      `Lowest grid import month: ${lowest.key} at ${GS().formatNumber(lowest.grid)} kWh.`,
+      `Solar exports equal ${GS().formatNumber(solarOffset)}% of recorded consumption.`,
+      `Peak usage is ${GS().formatNumber(peakShare)}% of recorded consumption.`,
+      billInsight
+    ];
+  }
+
   function renderInsights(analysis) {
-    $("#personal-insights").innerHTML = makeInsights(analysis)
+    const target = $("#personal-insights");
+    if (!target) {
+      return;
+    }
+    target.innerHTML = makeInsights(analysis)
       .map((item) => `<li>${escapeHtml(item)}</li>`)
       .join("");
   }
 
   function renderTable(container, rows, columns) {
+    if (!container) {
+      return;
+    }
     if (rows.length === 0) {
       container.innerHTML = "";
       return;
@@ -588,52 +405,86 @@
   function renderTables(analysis) {
     renderTable($("#monthly-table"), analysis.monthly, [
       { key: "key", label: "Month", format: (value) => value },
-      { key: "grid", label: "Grid import", format: (value) => `${formatNumber(value)} kWh` },
-      { key: "solar", label: "Solar export", format: (value) => `${formatNumber(value)} kWh` },
-      { key: "consumed", label: "Consumed", format: (value) => `${formatNumber(value)} kWh` },
-      { key: "bill", label: "Cost", format: (value) => formatMoney(value) }
+      { key: "grid", label: "Grid import", format: (value) => `${GS().formatNumber(value)} kWh` },
+      { key: "solar", label: "Solar export", format: (value) => `${GS().formatNumber(value)} kWh` },
+      { key: "consumed", label: "Consumed", format: (value) => `${GS().formatNumber(value)} kWh` },
+      { key: "bill", label: "CSV cost", format: (value) => GS().formatMoney(value) },
+      { key: "tariffBill", label: "Tariff bill", format: (value) => GS().formatMoney(value) }
     ]);
 
     renderTable($("#group-table"), analysis.groups, [
       { key: "key", label: "Group", format: (value) => value },
-      { key: "records", label: "Records", format: (value) => formatNumber(value, 0) },
-      { key: "households", label: "Households", format: (value) => formatNumber(value, 0) },
-      { key: "grid", label: "Grid import", format: (value) => `${formatNumber(value)} kWh` },
-      { key: "solar", label: "Solar export", format: (value) => `${formatNumber(value)} kWh` }
+      { key: "records", label: "Records", format: (value) => GS().formatNumber(value, 0) },
+      { key: "households", label: "Households", format: (value) => GS().formatNumber(value, 0) },
+      { key: "grid", label: "Grid import", format: (value) => `${GS().formatNumber(value)} kWh` },
+      { key: "solar", label: "Solar export", format: (value) => `${GS().formatNumber(value)} kWh` }
     ]);
 
     renderTable($("#anomaly-table"), analysis.anomalies, [
       { key: "day", label: "Day", format: (value) => value },
       { key: "neighbourhood", label: "Group", format: (value) => value },
-      { key: "grid", label: "Grid import", format: (value) => `${formatNumber(value)} kWh` },
-      { key: "pctOfAverage", label: "% of average", format: (value) => `${formatNumber(value)}%` },
+      { key: "grid", label: "Grid import", format: (value) => `${GS().formatNumber(value)} kWh` },
+      { key: "pctOfAverage", label: "% of average", format: (value) => `${GS().formatNumber(value)}%` },
       { key: "anomalyType", label: "Type", format: (value) => value }
     ]);
   }
 
-  let latestAnalysis = null;
-
-  function exportAnalysis() {
-    if (!latestAnalysis) {
+  function syncHouseholdFilter(allRows) {
+    const wrap = $("#household-filter-wrap");
+    const select = $("#household-filter");
+    if (!wrap || !select) {
       return;
     }
+    const households = GS().householdsOf(allRows);
+    if (households.length <= 1) {
+      wrap.hidden = true;
+      state.household = "all";
+      return;
+    }
+    wrap.hidden = false;
+    const current = state.household;
+    const options = ["<option value=\"all\">All households</option>"]
+      .concat(households.map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`));
+    select.innerHTML = options.join("");
+    select.value = households.includes(current) ? current : "all";
+    state.household = select.value;
+  }
 
-    const payload = {
-      generatedAt: new Date().toISOString(),
-      totals: latestAnalysis.totals,
-      monthly: latestAnalysis.monthly,
-      groups: latestAnalysis.groups,
-      anomalies: latestAnalysis.anomalies,
-      recommendations: latestAnalysis.recommendations
-    };
-
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  function downloadText(filename, text, mime) {
+    const blob = new Blob([text], { type: mime });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "energy-analysis.json";
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  function exportAnalysis() {
+    if (!state.latestAnalysis) {
+      return;
+    }
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      household: state.household,
+      tariff: state.latestAnalysis.tariff,
+      totals: state.latestAnalysis.totals,
+      monthly: state.latestAnalysis.monthly,
+      groups: state.latestAnalysis.groups,
+      anomalies: state.latestAnalysis.anomalies,
+      recommendations: state.latestAnalysis.recommendations,
+      heatmap: state.latestAnalysis.heatmap
+    };
+    downloadText("energy-analysis.json", JSON.stringify(payload, null, 2), "application/json");
+  }
+
+  function exportCsv() {
+    if (!state.latestAnalysis) {
+      return;
+    }
+    const table = GS().analysisTable(state.latestAnalysis);
+    const suffix = state.household === "all" ? "" : `-${state.household}`;
+    downloadText(`energy-analysis${suffix}.csv`, GS().tableToCsv(table), "text/csv");
   }
 
   function applyTheme(theme) {
@@ -647,49 +498,129 @@
     localStorage.setItem("gridscope-theme", theme);
   }
 
-  function renderAnalysis(rows, label) {
-    const analysis = getAnalysis(rows);
-    latestAnalysis = analysis;
-    $("#personal-results").hidden = false;
-    $("#upload-status").dataset.tone = "ok";
-    $("#upload-status").textContent = `${label}: ${analysis.totals.records} records analysed.`;
+  function setStatus(tone, message) {
+    const status = $("#upload-status");
+    if (!status) {
+      return;
+    }
+    status.dataset.tone = tone;
+    status.textContent = message;
+  }
+
+  function refreshView() {
+    if (!state.primaryRows) {
+      return;
+    }
+    const analysis = GS().getAnalysis(currentRows(), readTariff(), "all");
+    state.latestAnalysis = analysis;
+    const results = $("#personal-results");
+    if (results) {
+      results.hidden = false;
+    }
     renderMetrics(analysis);
     renderInsights(analysis);
-    $("#monthly-chart").innerHTML = drawMonthlyChart(analysis.monthly);
-    $("#mix-chart").innerHTML = drawLoadMix(analysis.groups);
-    $("#cost-chart").innerHTML = drawCostChart(analysis.monthly);
-    $("#anomaly-chart").innerHTML = drawAnomalyChart(analysis.anomalies);
+    const monthlyChart = $("#monthly-chart");
+    const mixChart = $("#mix-chart");
+    const costChart = $("#cost-chart");
+    const anomalyChart = $("#anomaly-chart");
+    const heatmapChart = $("#heatmap-chart");
+    const heatmapNote = $("#heatmap-note");
+    if (monthlyChart) {
+      monthlyChart.innerHTML = drawMonthlyChart(analysis.monthly);
+    }
+    if (mixChart) {
+      mixChart.innerHTML = drawLoadMix(analysis.groups);
+    }
+    if (costChart) {
+      costChart.innerHTML = drawCostChart(analysis.monthly);
+    }
+    if (anomalyChart) {
+      anomalyChart.innerHTML = drawAnomalyChart(analysis.anomalies);
+    }
+    if (heatmapChart) {
+      heatmapChart.innerHTML = drawHeatmap(analysis.heatmap);
+    }
+    if (heatmapNote) {
+      heatmapNote.textContent = analysis.heatmap.axis === "hour"
+        ? "Grid import by weekday and hour of day."
+        : "Grid import by weekday and month.";
+    }
     renderTables(analysis);
     renderRecommendations(analysis.recommendations);
 
-    const exportButton = $("#export-analysis");
-    if (exportButton) {
-      exportButton.disabled = false;
+    const compareRows = currentCompareRows();
+    if (compareRows) {
+      try {
+        renderCompare(GS().compareDatasets(currentRows(), compareRows, readTariff()));
+      } catch (error) {
+        renderCompare(null);
+        setStatus("error", error.message);
+      }
+    } else {
+      renderCompare(null);
+    }
+
+    ["export-analysis", "export-csv"].forEach((id) => {
+      const button = document.getElementById(id);
+      if (button) {
+        button.disabled = false;
+      }
+    });
+  }
+
+  function handlePrimaryText(text, label) {
+    try {
+      const rows = GS().normaliseRows(text);
+      state.primaryRows = rows;
+      state.label = label;
+      state.household = "all";
+      syncHouseholdFilter(rows);
+      setStatus("ok", `${label}: ${rows.length} records analysed.`);
+      refreshView();
+    } catch (error) {
+      const results = $("#personal-results");
+      if (results) {
+        results.hidden = true;
+      }
+      setStatus("error", error.message);
     }
   }
 
-  function handleText(text, label) {
+  function handleCompareText(text, label) {
     try {
-      const rows = normaliseRows(text);
-      renderAnalysis(rows, label);
+      if (!state.primaryRows) {
+        setStatus("error", "Load a primary CSV before comparing.");
+        return;
+      }
+      state.compareRows = GS().normaliseRows(text);
+      setStatus("ok", `${state.label} vs ${label}: compare ready.`);
+      refreshView();
     } catch (error) {
-      $("#personal-results").hidden = true;
-      $("#upload-status").dataset.tone = "error";
-      $("#upload-status").textContent = error.message;
+      state.compareRows = null;
+      renderCompare(null);
+      setStatus("error", error.message);
     }
+  }
+
+  function readFile(file, onText) {
+    const reader = new FileReader();
+    reader.onload = () => onText(String(reader.result || ""));
+    reader.onerror = () => {
+      setStatus("error", "The file could not be read.");
+    };
+    reader.readAsText(file);
   }
 
   function init() {
     const input = $("#energy-csv");
     const sample = $("#load-sample");
-    const exportButton = $("#export-analysis");
-    const themeToggle = $("#theme-toggle");
     if (!input || !sample) {
       return;
     }
 
     applyTheme(localStorage.getItem("gridscope-theme") === "dark" ? "dark" : "light");
 
+    const themeToggle = $("#theme-toggle");
     if (themeToggle) {
       themeToggle.addEventListener("click", () => {
         const nextTheme = document.body.classList.contains("theme-dark") ? "light" : "dark";
@@ -697,8 +628,13 @@
       });
     }
 
+    const exportButton = $("#export-analysis");
     if (exportButton) {
       exportButton.addEventListener("click", exportAnalysis);
+    }
+    const exportCsvButton = $("#export-csv");
+    if (exportCsvButton) {
+      exportCsvButton.addEventListener("click", exportCsv);
     }
 
     input.addEventListener("change", () => {
@@ -706,16 +642,54 @@
       if (!file) {
         return;
       }
-      const reader = new FileReader();
-      reader.onload = () => handleText(String(reader.result || ""), file.name);
-      reader.onerror = () => {
-        $("#upload-status").dataset.tone = "error";
-        $("#upload-status").textContent = "The file could not be read.";
-      };
-      reader.readAsText(file);
+      readFile(file, (text) => handlePrimaryText(text, file.name));
     });
 
-    sample.addEventListener("click", () => handleText(sampleCsv, "Sample data"));
+    sample.addEventListener("click", () => handlePrimaryText(sampleCsv, "Sample data"));
+
+    const compareInput = $("#compare-csv");
+    if (compareInput) {
+      compareInput.addEventListener("change", () => {
+        const file = compareInput.files && compareInput.files[0];
+        if (!file) {
+          return;
+        }
+        readFile(file, (text) => handleCompareText(text, file.name));
+      });
+    }
+
+    const compareSample = $("#compare-sample");
+    if (compareSample) {
+      compareSample.addEventListener("click", () => handleCompareText(sampleCsv, "Sample data"));
+    }
+
+    const householdFilter = $("#household-filter");
+    if (householdFilter) {
+      householdFilter.addEventListener("change", () => {
+        state.household = householdFilter.value || "all";
+        refreshView();
+      });
+    }
+
+    ["tariff-peak", "tariff-shoulder", "tariff-offpeak", "tariff-export"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener("input", refreshView);
+      }
+    });
+
+    const boot = window.GRIDSCOPE_BOOTSTRAP;
+    if (boot && boot.tariff) {
+      applyTariffToForm(boot.tariff);
+    }
+    if (boot && boot.csv) {
+      handlePrimaryText(boot.csv, boot.label || "Embedded data");
+      if (boot.household && boot.household !== "all") {
+        state.household = boot.household;
+        syncHouseholdFilter(state.primaryRows || []);
+        refreshView();
+      }
+    }
   }
 
   document.addEventListener("DOMContentLoaded", init);
