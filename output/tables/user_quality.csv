@@ -1,2 +1,2 @@
-"records","days","households","first_day","last_day","grid_import_kwh","solar_export_kwh","consumed_kwh","solar_export_pct","peak_share_pct"
-18,18,8,"2025-01-01","2025-06-03",272.7,60.3,295.7,20.4,42.3
+"records","days","households","first_day","last_day","grid_import_kwh","solar_export_kwh","consumed_kwh","solar_export_pct","peak_share_pct","tier_source","negative_rows"
+1460,365,4,"2024-07-01","2025-06-30",19958,2608.2,22566.1,11.6,39.3,"measured",0

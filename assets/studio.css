@@ -31,6 +31,21 @@ body.theme-dark {
   --table-head-text: #cbd5e1;
 }
 
+body.theme-dark .notice {
+  border-color: #7a5a1e;
+  border-left-color: #d98218;
+  background: #21190a;
+  color: #f0d9a8;
+}
+
+body.theme-dark .status[data-tone="error"] {
+  color: #ff8f8f;
+}
+
+body.theme-dark .status[data-tone="warn"] {
+  color: #f0ad4e;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -170,6 +185,30 @@ button:hover,
 
 .status[data-tone="error"] {
   color: #b42318;
+}
+
+/* Shown when the parser had to assume or discard something — the analysis
+   still ran, but the reader needs to know what it rests on. */
+.status[data-tone="warn"] {
+  color: #a05a00;
+}
+
+/* Same message in the generated reports, where there is no status line. */
+.notice {
+  margin: 18px 0;
+  padding: 12px 14px;
+  border: 1px solid #e5c07b;
+  border-left: 4px solid #d98218;
+  border-radius: 8px;
+  background: #fdf7ec;
+  color: #6b4a12;
+  font-size: 0.94rem;
+}
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+  margin: 12px 0;
 }
 
 .metrics {

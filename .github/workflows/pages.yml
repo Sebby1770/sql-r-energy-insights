@@ -1,0 +1,58 @@
+name: Publish report
+
+# Publishes the generated demo report to GitHub Pages so the studio can be
+# tried without cloning. The site is built by the same pipeline CI runs.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+
+      - name: Install SQLite
+        run: sudo apt-get update && sudo apt-get install -y sqlite3
+
+      - name: Build the report
+        run: make demo
+
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp output/report.html site/index.html
+          # The report inlines its CSS, but the upload tools still load
+          # studio.js and the sample CSV at the paths the report expects.
+          mkdir -p site/assets site/data site/figures
+          cp assets/studio.js site/assets/
+          cp assets/studio.css site/assets/
+          cp data/sample_energy_upload.csv site/data/
+          cp output/figures/*.png site/figures/
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
