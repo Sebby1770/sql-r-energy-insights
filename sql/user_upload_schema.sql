@@ -10,8 +10,15 @@ CREATE TABLE user_readings (
     offpeak_kwh REAL NOT NULL DEFAULT 0,
     solar_export_kwh REAL NOT NULL DEFAULT 0,
     grid_import_kwh REAL NOT NULL DEFAULT 0,
-    estimated_bill REAL
+    estimated_bill REAL,
+    -- 'measured' when the file supplied peak/shoulder/offpeak columns,
+    -- 'estimated' when they were modelled from a single total. Anything
+    -- derived from the tier split is an assumption in the second case.
+    tier_source TEXT NOT NULL DEFAULT 'measured'
 );
+
+CREATE INDEX idx_user_readings_household ON user_readings (household_id);
+CREATE INDEX idx_user_readings_day ON user_readings (day);
 
 CREATE VIEW user_daily_profile AS
 SELECT
@@ -24,5 +31,6 @@ SELECT
     solar_export_kwh,
     grid_import_kwh,
     peak_kwh + shoulder_kwh + offpeak_kwh AS consumed_kwh,
-    estimated_bill
+    estimated_bill,
+    tier_source
 FROM user_readings;

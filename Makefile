@@ -1,14 +1,16 @@
-.PHONY: demo custom clean verify help
+.PHONY: demo custom clean verify test test-r test-js sample help
 
 INPUT ?= data/sample_energy_upload.csv
 OUTPUT ?= output/custom-report.html
 
 help:
 	@echo "Targets:"
-	@echo "  make demo    Build the demo portfolio report"
-	@echo "  make custom  Analyse a CSV (override INPUT and OUTPUT)"
-	@echo "  make verify  Run the pipeline and check required outputs"
-	@echo "  make clean   Remove generated outputs"
+	@echo "  make demo     Build the demo portfolio report"
+	@echo "  make custom   Analyse a CSV (override INPUT and OUTPUT)"
+	@echo "  make test     Run the R and browser test suites"
+	@echo "  make sample   Regenerate data/sample_energy_upload.csv"
+	@echo "  make verify   Run the pipeline and check required outputs"
+	@echo "  make clean    Remove generated outputs"
 
 demo:
 	Rscript R/run_analysis.R
@@ -18,7 +20,18 @@ custom:
 	Rscript R/run_analysis.R --input $(INPUT) --output $(OUTPUT)
 	@echo "Open $(OUTPUT)"
 
-verify: demo custom
+test: test-r test-js
+
+test-r:
+	Rscript tests/test_analysis.R
+
+test-js:
+	node tests/js/run.mjs
+
+sample:
+	Rscript scripts/make_sample_csv.R
+
+verify: test demo custom
 	test -f output/report.html
 	test -f output/custom-report.html
 	test -f output/tables/user_anomalies.csv

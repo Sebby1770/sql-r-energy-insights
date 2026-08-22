@@ -1,1 +1,4 @@
-""
+"day","neighbourhood","household_id","grid_import_kwh","consumed_kwh","estimated_bill","household_median_kwh","pct_of_average","modified_z","method","anomaly_type"
+"2024-08-09","East Park","H-201",71.5,72.5,23.97,18.6,384.5,11.44,"modified_z","high_spike"
+"2025-01-18","Northbank","H-101",48.4,53.1,17.43,14.4,336.6,9.56,"modified_z","high_spike"
+"2024-12-27","Northbank","H-102",1.1,1.1,1.48,12.1,8.8,-6.34,"modified_z","low_dip"

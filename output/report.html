@@ -4,7 +4,376 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GridScope Studio</title>
-<link rel="stylesheet" href="../assets/studio.css">
+<style>:root {
+  color-scheme: light;
+  --ink: #172033;
+  --muted: #667085;
+  --line: #d9e2ef;
+  --panel: #ffffff;
+  --canvas: #f6f8fb;
+  --header-bg: #172033;
+  --header-text: #ffffff;
+  --header-lede: #dbeafe;
+  --table-head: #edf2f7;
+  --table-head-text: #344054;
+  --blue: #2563eb;
+  --green: #10b981;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --violet: #7c3aed;
+}
+
+body.theme-dark {
+  color-scheme: dark;
+  --ink: #e8edf7;
+  --muted: #9aa7bd;
+  --line: #334155;
+  --panel: #111827;
+  --canvas: #0b1220;
+  --header-bg: #020617;
+  --header-text: #f8fafc;
+  --header-lede: #93c5fd;
+  --table-head: #1e293b;
+  --table-head-text: #cbd5e1;
+}
+
+body.theme-dark .notice {
+  border-color: #7a5a1e;
+  border-left-color: #d98218;
+  background: #21190a;
+  color: #f0d9a8;
+}
+
+body.theme-dark .status[data-tone="error"] {
+  color: #ff8f8f;
+}
+
+body.theme-dark .status[data-tone="warn"] {
+  color: #f0ad4e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+header {
+  background: var(--header-bg);
+  color: var(--header-text);
+  padding: 42px 7vw 34px;
+}
+
+main {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 28px 20px 56px;
+}
+
+h1 {
+  margin: 0 0 10px;
+  font-size: 2.45rem;
+  letter-spacing: 0;
+}
+
+h2 {
+  margin: 0 0 12px;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+
+h3 {
+  margin: 0 0 10px;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+
+p {
+  line-height: 1.6;
+}
+
+a {
+  color: var(--blue);
+}
+
+.lede {
+  max-width: 780px;
+  color: var(--header-lede);
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: var(--blue);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.studio-panel,
+.report-section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  margin: 18px 0;
+}
+
+.studio-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.studio-panel p {
+  margin-bottom: 0;
+  color: var(--muted);
+}
+
+.upload-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.file-picker,
+button,
+.template-link {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--ink);
+  font-weight: 700;
+  padding: 9px 13px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.file-picker {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #ffffff;
+}
+
+button:hover,
+.template-link:hover {
+  border-color: var(--blue);
+}
+
+.file-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.status {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  min-height: 34px;
+}
+
+.status[data-tone="error"] {
+  color: #b42318;
+}
+
+/* Shown when the parser had to assume or discard something — the analysis
+   still ran, but the reader needs to know what it rests on. */
+.status[data-tone="warn"] {
+  color: #a05a00;
+}
+
+/* Same message in the generated reports, where there is no status line. */
+.notice {
+  margin: 18px 0;
+  padding: 12px 14px;
+  border: 1px solid #e5c07b;
+  border-left: 4px solid #d98218;
+  border-radius: 8px;
+  background: #fdf7ec;
+  color: #6b4a12;
+  font-size: 0.94rem;
+}
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+  margin: 12px 0;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin: 22px 0;
+}
+
+.metric {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.metric span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.metric strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 1.35rem;
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.insight-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.insight-list li {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 13px;
+  line-height: 1.45;
+}
+
+.impact {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.impact-high {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.impact-medium {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.impact-low {
+  background: rgba(37, 99, 235, 0.15);
+  color: #2563eb;
+}
+
+.figure {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 16px 0;
+}
+
+.figure img,
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart {
+  min-height: 270px;
+}
+
+.chart-empty {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+th,
+td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+
+th {
+  background: var(--table-head);
+  color: var(--table-head-text);
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}
+
+.demo-heading {
+  margin-top: 34px;
+}
+
+@media (max-width: 760px) {
+  header {
+    padding: 34px 20px 28px;
+  }
+
+  h1 {
+    font-size: 2rem;
+  }
+
+  .studio-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-controls {
+    justify-content: flex-start;
+  }
+}</style>
 </head>
 <body>
 <header>
@@ -67,44 +436,44 @@
 <h2>Monthly Demand</h2>
 <p>Grid imports rise in hotter and colder months, while solar export peaks through the modeled summer profile.</p>
 <div class="figure"><img src="figures/monthly_usage.png" alt="Monthly grid import and solar export chart"></div>
-<table><thead><tr><th>month</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th><th>month_over_month_import_kwh</th></tr></thead><tbody><tr><td>2025-01</td><td>4181.9</td><td>4173.2</td><td>2125.69</td><td>NA</td></tr>
-<tr><td>2025-02</td><td>3814.8</td><td>3769.2</td><td>1932.64</td><td> -367.2</td></tr>
-<tr><td>2025-03</td><td>4382.0</td><td>2693.9</td><td>2056.41</td><td>  567.2</td></tr>
-<tr><td>2025-04</td><td>4214.4</td><td>2606.6</td><td>1982.20</td><td> -167.6</td></tr>
-<tr><td>2025-05</td><td>4359.7</td><td>2693.3</td><td>2049.69</td><td>  145.3</td></tr>
-<tr><td>2025-06</td><td>6964.3</td><td>1381.9</td><td>2708.92</td><td> 2604.6</td></tr>
-<tr><td>2025-07</td><td>7156.4</td><td>1427.6</td><td>2787.43</td><td>  192.0</td></tr>
-<tr><td>2025-08</td><td>7213.5</td><td>1428.0</td><td>2804.34</td><td>   57.1</td></tr>
-<tr><td>2025-09</td><td>3829.6</td><td>3256.3</td><td>1910.56</td><td>-3383.9</td></tr>
-<tr><td>2025-10</td><td>3956.0</td><td>3365.3</td><td>1973.81</td><td>  126.4</td></tr>
-<tr><td>2025-11</td><td>3860.3</td><td>3256.3</td><td>1919.87</td><td>  -95.7</td></tr>
-<tr><td>2025-12</td><td>4177.9</td><td>4173.1</td><td>2124.23</td><td>  317.6</td></tr></tbody></table>
+<table><thead><tr><th>month</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th><th>month_over_month_import_kwh</th></tr></thead><tbody><tr><td>2025-01</td><td>4,181.9</td><td>4,173.2</td><td>2,125.69</td><td>—</td></tr>
+<tr><td>2025-02</td><td>3,814.8</td><td>3,769.2</td><td>1,932.64</td><td>-367.2</td></tr>
+<tr><td>2025-03</td><td>4,382.0</td><td>2,693.9</td><td>2,056.41</td><td>567.2</td></tr>
+<tr><td>2025-04</td><td>4,214.4</td><td>2,606.6</td><td>1,982.20</td><td>-167.6</td></tr>
+<tr><td>2025-05</td><td>4,359.7</td><td>2,693.3</td><td>2,049.69</td><td>145.3</td></tr>
+<tr><td>2025-06</td><td>6,964.3</td><td>1,381.9</td><td>2,708.92</td><td>2,604.6</td></tr>
+<tr><td>2025-07</td><td>7,156.4</td><td>1,427.6</td><td>2,787.43</td><td>192.0</td></tr>
+<tr><td>2025-08</td><td>7,213.5</td><td>1,428.0</td><td>2,804.34</td><td>57.1</td></tr>
+<tr><td>2025-09</td><td>3,829.6</td><td>3,256.3</td><td>1,910.56</td><td>-3,383.9</td></tr>
+<tr><td>2025-10</td><td>3,956.0</td><td>3,365.3</td><td>1,973.81</td><td>126.4</td></tr>
+<tr><td>2025-11</td><td>3,860.3</td><td>3,256.3</td><td>1,919.87</td><td>-95.7</td></tr>
+<tr><td>2025-12</td><td>4,177.9</td><td>4,173.1</td><td>2,124.23</td><td>317.6</td></tr></tbody></table>
 <h2>Plan Comparison</h2>
 <p>Flex Saver has the lowest average daily bill in this synthetic portfolio. The comparison also tracks peak-share exposure and solar export share by plan.</p>
 <div class="figure"><img src="figures/plan_comparison.png" alt="Average daily bill by plan chart"></div>
-<table><thead><tr><th>plan_name</th><th>households</th><th>avg_daily_bill</th><th>annual_revenue</th><th>peak_share_pct</th><th>solar_export_share_pct</th></tr></thead><tbody><tr><td>Flex Saver</td><td>4</td><td>3.97</td><td> 5790.31</td><td>36.3</td><td> 6.0</td></tr>
-<tr><td>Flat Comfort</td><td>4</td><td>4.23</td><td> 6170.68</td><td>36.7</td><td>30.5</td></tr>
-<tr><td>Solar Plus</td><td>8</td><td>4.94</td><td>14414.80</td><td>36.2</td><td>65.7</td></tr></tbody></table>
+<table><thead><tr><th>plan_name</th><th>households</th><th>avg_daily_bill</th><th>annual_revenue</th><th>peak_share_pct</th><th>solar_export_share_pct</th></tr></thead><tbody><tr><td>Flex Saver</td><td>4</td><td>3.97</td><td>5,790.31</td><td>36.3</td><td>6.0</td></tr>
+<tr><td>Flat Comfort</td><td>4</td><td>4.23</td><td>6,170.68</td><td>36.7</td><td>30.5</td></tr>
+<tr><td>Solar Plus</td><td>8</td><td>4.94</td><td>14,414.80</td><td>36.2</td><td>65.7</td></tr></tbody></table>
 <h2>Neighbourhood Load Mix</h2>
 <p>Harbourview has the highest estimated annual bill in the model, making it a useful candidate for demand response or solar export programs.</p>
 <div class="figure"><img src="figures/neighbourhood_load_mix.png" alt="Neighbourhood load mix chart"></div>
-<table><thead><tr><th>neighbourhood</th><th>peak_kwh</th><th>shoulder_kwh</th><th>offpeak_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th></tr></thead><tbody><tr><td>East Park</td><td>6484.3</td><td>6645.0</td><td>4618.6</td><td>8943.9</td><td>6515.52</td></tr>
-<tr><td>Westfield</td><td>6992.3</td><td>7258.1</td><td>5029.5</td><td>9186.4</td><td>6917.06</td></tr>
-<tr><td>Northbank</td><td>5628.6</td><td>5774.6</td><td>4005.1</td><td>6666.4</td><td>5882.46</td></tr>
-<tr><td>Harbourview</td><td>7247.3</td><td>7565.3</td><td>5236.5</td><td>9428.0</td><td>7060.75</td></tr></tbody></table>
+<table><thead><tr><th>neighbourhood</th><th>peak_kwh</th><th>shoulder_kwh</th><th>offpeak_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th></tr></thead><tbody><tr><td>East Park</td><td>6,484.3</td><td>6,645.0</td><td>4,618.6</td><td>8,943.9</td><td>6,515.52</td></tr>
+<tr><td>Westfield</td><td>6,992.3</td><td>7,258.1</td><td>5,029.5</td><td>9,186.4</td><td>6,917.06</td></tr>
+<tr><td>Northbank</td><td>5,628.6</td><td>5,774.6</td><td>4,005.1</td><td>6,666.4</td><td>5,882.46</td></tr>
+<tr><td>Harbourview</td><td>7,247.3</td><td>7,565.3</td><td>5,236.5</td><td>9,428.0</td><td>7,060.75</td></tr></tbody></table>
 <h2>Household Efficiency</h2>
 <p>The top-ranked household is #12 in Harbourview, with 1,173.2 kWh per resident.</p>
 <div class="figure"><img src="figures/household_efficiency.png" alt="Household efficiency scatter plot"></div>
-<table><thead><tr><th>efficiency_rank</th><th>household_id</th><th>neighbourhood</th><th>home_type</th><th>residents</th><th>solar_kw</th><th>consumed_kwh</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>kwh_per_resident</th><th>annual_bill</th><th>annual_bill_per_resident</th><th>insight_segment</th></tr></thead><tbody><tr><td> 1</td><td>12</td><td>Harbourview</td><td>detached</td><td>6</td><td>7.2</td><td>7039.2</td><td>4916.6</td><td>5053.9</td><td>1173.2</td><td>2152.37</td><td>358.73</td><td>solar leader</td></tr>
-<tr><td> 2</td><td>16</td><td>Westfield</td><td>detached</td><td>5</td><td>6.0</td><td>6272.0</td><td>4502.4</td><td>4213.1</td><td>1254.4</td><td>1985.73</td><td>397.15</td><td>solar leader</td></tr>
-<tr><td> 3</td><td> 7</td><td>East Park</td><td>detached</td><td>5</td><td>6.4</td><td>6272.7</td><td>4360.9</td><td>4552.0</td><td>1254.5</td><td>1965.52</td><td>393.10</td><td>solar leader</td></tr>
-<tr><td> 4</td><td>10</td><td>Harbourview</td><td>townhouse</td><td>4</td><td>1.8</td><td>5103.2</td><td>4753.7</td><td> 832.2</td><td>1275.8</td><td>1917.71</td><td>479.43</td><td>lean user</td></tr>
-<tr><td> 5</td><td> 4</td><td>Northbank</td><td>detached</td><td>4</td><td>5.8</td><td>5504.7</td><td>3732.7</td><td>4218.9</td><td>1376.2</td><td>1768.19</td><td>442.05</td><td>solar leader</td></tr>
-<tr><td> 6</td><td>11</td><td>Harbourview</td><td>detached</td><td>4</td><td>5.0</td><td>5505.4</td><td>4017.9</td><td>3541.8</td><td>1376.4</td><td>1809.18</td><td>452.30</td><td>solar leader</td></tr>
-<tr><td> 7</td><td>15</td><td>Westfield</td><td>detached</td><td>4</td><td>4.8</td><td>5505.4</td><td>4089.0</td><td>3372.5</td><td>1376.4</td><td>1819.14</td><td>454.79</td><td>lean user</td></tr>
-<tr><td> 8</td><td> 3</td><td>Northbank</td><td>townhouse</td><td>3</td><td>3.5</td><td>4334.9</td><td>3307.1</td><td>2447.4</td><td>1445.0</td><td>1537.94</td><td>512.65</td><td>steady user</td></tr>
-<tr><td> 9</td><td>14</td><td>Westfield</td><td>townhouse</td><td>3</td><td>2.5</td><td>4335.6</td><td>3663.3</td><td>1600.8</td><td>1445.2</td><td>1743.24</td><td>581.08</td><td>steady user</td></tr>
-<tr><td>10</td><td> 8</td><td>East Park</td><td>detached</td><td>3</td><td>4.0</td><td>4738.5</td><td>3532.8</td><td>2870.6</td><td>1579.5</td><td>1803.89</td><td>601.30</td><td>steady user</td></tr></tbody></table>
+<table><thead><tr><th>efficiency_rank</th><th>household_id</th><th>neighbourhood</th><th>home_type</th><th>residents</th><th>solar_kw</th><th>consumed_kwh</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>kwh_per_resident</th><th>annual_bill</th><th>annual_bill_per_resident</th><th>insight_segment</th></tr></thead><tbody><tr><td>1</td><td>12</td><td>Harbourview</td><td>detached</td><td>6</td><td>7.2</td><td>7,039.2</td><td>4,916.6</td><td>5,053.9</td><td>1,173.2</td><td>2,152.37</td><td>358.73</td><td>solar leader</td></tr>
+<tr><td>2</td><td>16</td><td>Westfield</td><td>detached</td><td>5</td><td>6.0</td><td>6,272.0</td><td>4,502.4</td><td>4,213.1</td><td>1,254.4</td><td>1,985.73</td><td>397.15</td><td>solar leader</td></tr>
+<tr><td>3</td><td>7</td><td>East Park</td><td>detached</td><td>5</td><td>6.4</td><td>6,272.7</td><td>4,360.9</td><td>4,552.0</td><td>1,254.5</td><td>1,965.52</td><td>393.10</td><td>solar leader</td></tr>
+<tr><td>4</td><td>10</td><td>Harbourview</td><td>townhouse</td><td>4</td><td>1.8</td><td>5,103.2</td><td>4,753.7</td><td>832.2</td><td>1,275.8</td><td>1,917.71</td><td>479.43</td><td>lean user</td></tr>
+<tr><td>5</td><td>4</td><td>Northbank</td><td>detached</td><td>4</td><td>5.8</td><td>5,504.7</td><td>3,732.7</td><td>4,218.9</td><td>1,376.2</td><td>1,768.19</td><td>442.05</td><td>solar leader</td></tr>
+<tr><td>6</td><td>11</td><td>Harbourview</td><td>detached</td><td>4</td><td>5.0</td><td>5,505.4</td><td>4,017.9</td><td>3,541.8</td><td>1,376.4</td><td>1,809.18</td><td>452.30</td><td>solar leader</td></tr>
+<tr><td>7</td><td>15</td><td>Westfield</td><td>detached</td><td>4</td><td>4.8</td><td>5,505.4</td><td>4,089.0</td><td>3,372.5</td><td>1,376.4</td><td>1,819.14</td><td>454.79</td><td>lean user</td></tr>
+<tr><td>8</td><td>3</td><td>Northbank</td><td>townhouse</td><td>3</td><td>3.5</td><td>4,334.9</td><td>3,307.1</td><td>2,447.4</td><td>1,445.0</td><td>1,537.94</td><td>512.65</td><td>steady user</td></tr>
+<tr><td>9</td><td>14</td><td>Westfield</td><td>townhouse</td><td>3</td><td>2.5</td><td>4,335.6</td><td>3,663.3</td><td>1,600.8</td><td>1,445.2</td><td>1,743.24</td><td>581.08</td><td>steady user</td></tr>
+<tr><td>10</td><td>8</td><td>East Park</td><td>detached</td><td>3</td><td>4.0</td><td>4,738.5</td><td>3,532.8</td><td>2,870.6</td><td>1,579.5</td><td>1,803.89</td><td>601.30</td><td>steady user</td></tr></tbody></table>
 </main>
 <script src="../assets/studio.js"></script>
 </body>
