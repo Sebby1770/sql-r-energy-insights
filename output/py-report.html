@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GridScope Studio</title>
+<link rel="stylesheet" href="../assets/studio.css">
+</head>
+<body>
+<header>
+<p class="eyebrow">GridScope 0.4.0</p>
+<h1>GridScope Studio</h1>
+<p class="lede">Python engine snapshot plus the local studio: household filter, live tariff rebill, plan compare, weekday heatmap, and CSV export. Data stays in the browser after this page is written.</p>
+</header>
+<main>
+<section class="studio-panel" id="upload-studio">
+<ol class="onboarding-strip" id="onboarding-strip">
+<li><span>1</span> Load a CSV</li>
+<li><span>2</span> Set your tariff</li>
+<li><span>3</span> Read the $ savings</li>
+</ol>
+<div>
+<p class="eyebrow">Personal workspace</p>
+<h2>Analyse Your CSV</h2>
+<p>Use a billing or meter file with a date column and kWh columns. Filter by household, edit the tariff to rebill live, compare a second file, and export the current analysis table.</p>
+</div>
+<div class="upload-controls">
+<label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
+<button id="load-sample" type="button">Try Sample</button>
+<label class="file-picker file-picker-secondary" for="compare-csv">Compare CSV<input id="compare-csv" type="file" accept=".csv,text/csv"></label>
+<button id="compare-sample" type="button">Compare to sample</button>
+<button id="export-analysis" type="button" disabled>Export JSON</button>
+<button id="export-csv" type="button" disabled>Export CSV</button>
+<button id="theme-toggle" type="button" aria-pressed="false">Dark mode</button>
+<a class="template-link" href="../data/sample_energy_upload.csv">Template</a>
+</div>
+<div class="status" id="upload-status">Waiting for data.</div>
+</section>
+
+<section class="report-section" id="personal-results" hidden>
+<h2>Personal Analysis</h2>
+<div class="hero-savings" id="savings-hero">
+<p class="eyebrow">This month you could save</p>
+<strong id="savings-hero-amount">$0.00</strong>
+<p class="chart-note" id="savings-hero-note">Load a CSV to see quantified opportunities.</p>
+</div>
+<div class="plan-cards" id="plan-cards"></div>
+<div class="studio-tools">
+<div class="tool-block" id="household-filter-wrap" hidden>
+<label for="household-filter">Household</label>
+<select id="household-filter"></select>
+</div>
+<div class="tool-block">
+<label for="date-order">Date order</label>
+<select id="date-order">
+<option value="dmy" selected>DMY (AU)</option>
+<option value="mdy">MDY (US)</option>
+<option value="auto">Auto</option>
+</select>
+</div>
+<label class="tool-block tou-toggle" for="tou-toggle">
+<input id="tou-toggle" type="checkbox">
+Apply NSW-style TOU from hour
+</label>
+<fieldset class="tool-block tariff-editor">
+<legend>Tariff (AUD)</legend>
+<label>Peak <input id="tariff-peak" type="number" inputmode="decimal" min="0" step="0.01" value="0.40"></label>
+<label>Shoulder <input id="tariff-shoulder" type="number" inputmode="decimal" min="0" step="0.01" value="0.28"></label>
+<label>Off-peak <input id="tariff-offpeak" type="number" inputmode="decimal" min="0" step="0.01" value="0.18"></label>
+<label>Export credit <input id="tariff-export" type="number" inputmode="decimal" min="0" step="0.01" value="0.08"></label>
+<label>Daily supply <input id="tariff-supply" type="number" inputmode="decimal" min="0" step="0.01" value="1.10"></label>
+<label>GST rate <input id="tariff-gst" type="number" inputmode="decimal" min="0" step="0.01" value="0.10"></label>
+</fieldset>
+</div>
+<div class="metrics" id="personal-metrics"></div>
+<div class="metrics compare-metrics" id="compare-metrics" hidden></div>
+<h3>Signals</h3>
+<ul class="insight-list" id="personal-insights"></ul>
+<div class="results-grid">
+<div>
+<h3>Monthly Demand</h3>
+<div class="chart" id="monthly-chart"></div>
+</div>
+<div>
+<h3>Cost</h3>
+<div class="chart" id="cost-chart"></div>
+</div>
+</div>
+<h3>Load Mix</h3>
+<div class="chart" id="mix-chart"></div>
+<h3>Weekday Heatmap</h3>
+<p class="chart-note" id="heatmap-note">Grid import by weekday and month. Hour buckets are used when a timestamp hour is present.</p>
+<div class="chart" id="heatmap-chart"></div>
+<h3>Monthly Table</h3>
+<div id="monthly-table"></div>
+<h3>Group Table</h3>
+<div id="group-table"></div>
+<h3>Unusual Days</h3>
+<div class="chart" id="anomaly-chart"></div>
+<div id="anomaly-table"></div>
+<h3>Savings Opportunities</h3>
+<ul class="insight-list" id="recommendation-list"></ul>
+</section>
+
+
+<section class="report-section">
+<h2>Python engine snapshot</h2>
+<p class="chart-note">Static copy of the CLI analysis for sample_energy_upload.csv. Interactive charts above use the same formulas.</p>
+<div class="metrics">
+<div class="metric"><span>Records</span><strong>18</strong></div>
+<div class="metric"><span>Days covered</span><strong>18</strong></div>
+<div class="metric"><span>Households</span><strong>8</strong></div>
+<div class="metric"><span>Grid import</span><strong>272.7 kWh</strong></div>
+<div class="metric"><span>Solar export</span><strong>60.3 kWh</strong></div>
+<div class="metric"><span>Supply charge</span><strong>$19.80</strong></div>
+<div class="metric"><span>GST</span><strong>$10.57</strong></div>
+<div class="metric"><span>Bill ex GST</span><strong>$105.73</strong></div>
+<div class="metric"><span>Tariff bill</span><strong>$116.31</strong></div>
+<div class="metric"><span>This month you could save</span><strong>$9.66</strong></div>
+<div class="metric"><span>Cheapest plan</span><strong>Solar Plus</strong></div>
+</div>
+<ul class="insight-list">
+<li>Highest grid import month: 2025-06 at 63.6 kWh.</li>
+<li>Lowest grid import month: 2025-03 at 35.3 kWh.</li>
+<li>Solar exports equal 20.4% of recorded consumption.</li>
+<li>Peak usage is 42.3% of recorded consumption.</li>
+<li>CSV estimated spend is $101.67.</li>
+</ul>
+<h3>Monthly table</h3>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>Grid import</th><th>Solar export</th><th>Consumed</th><th>Tariff bill</th></tr></thead><tbody><tr><td>2025-01</td><td>45.9</td><td>11.9</td><td>50.9</td><td>20.05</td></tr><tr><td>2025-02</td><td>40.8</td><td>16.0</td><td>49.0</td><td>18.87</td></tr><tr><td>2025-03</td><td>35.3</td><td>12.5</td><td>40.5</td><td>16.23</td></tr><tr><td>2025-04</td><td>45.6</td><td>7.3</td><td>47.7</td><td>19.02</td></tr><tr><td>2025-05</td><td>41.5</td><td>11.6</td><td>43.6</td><td>17.11</td></tr><tr><td>2025-06</td><td>63.6</td><td>1.0</td><td>64.0</td><td>25.03</td></tr></tbody></table></div>
+<h3>Plans</h3>
+<div class="table-wrap"><table><thead><tr><th>Plan</th><th>Bill</th><th>Δ vs cheapest</th><th>Winner</th></tr></thead><tbody><tr><td>Flex Saver</td><td>116.31</td><td>2.33</td><td>False</td></tr><tr><td>Solar Plus</td><td>113.97</td><td>0.00</td><td>True</td></tr><tr><td>Flat Comfort</td><td>132.45</td><td>18.48</td><td>False</td></tr></tbody></table></div>
+<h3>Groups</h3>
+<div class="table-wrap"><table><thead><tr><th>Group</th><th>Records</th><th>Households</th><th>Grid import</th><th>Solar export</th></tr></thead><tbody><tr><td>Northbank</td><td>5</td><td>2</td><td>82.4</td><td>15.5</td></tr><tr><td>East Park</td><td>5</td><td>2</td><td>73.3</td><td>21.9</td></tr><tr><td>Westfield</td><td>4</td><td>2</td><td>67.8</td><td>7.3</td></tr><tr><td>Harbourview</td><td>4</td><td>2</td><td>49.2</td><td>15.6</td></tr></tbody></table></div>
+<h3>Unusual days</h3>
+<p class="chart-note">No rows.</p>
+<h3>Savings opportunities</h3>
+<ul class="insight-list"><li><strong>Increase solar self-consumption</strong> Solar exports are 20.4% of consumption. Using 50% of export on-site could save $6.63. <span class="saving">$6.63</span> <span class="impact impact-high">high impact</span></li><li><strong>Shift peak usage</strong> Peak is 42.3% of consumption. Moving 10% of peak into off-peak could save $3.03. <span class="saving">$3.03</span> <span class="impact impact-medium">medium impact</span></li><li><strong>Review estimated spend</strong> Average daily bill is $5.65 across 18 days. Projected 30-day cost is $169.45. <span class="saving">$0.00</span> <span class="impact impact-medium">medium impact</span></li></ul>
+</section>
+
+</main>
+<script>window.GRIDSCOPE_BOOTSTRAP = {"csv": "day,household_id,neighbourhood,peak_kwh,shoulder_kwh,offpeak_kwh,solar_export_kwh,grid_import_kwh,estimated_bill\n2025-01-01,H-101,Northbank,7.2,5.8,3.4,6.1,13.8,5.42\n2025-01-02,H-101,Northbank,6.9,5.6,3.1,5.8,13.2,5.19\n2025-01-03,H-102,Northbank,8.4,6.3,4.2,0.0,18.9,6.81\n2025-02-01,H-201,East Park,5.9,4.7,3.2,7.4,10.7,4.24\n2025-02-02,H-201,East Park,6.1,4.8,3.3,7.2,11.1,4.36\n2025-02-03,H-202,East Park,9.2,7.0,4.8,1.4,19.0,7.18\n2025-03-01,H-301,Harbourview,4.8,4.0,2.8,5.3,9.4,3.73\n2025-03-02,H-301,Harbourview,4.9,4.2,2.7,5.0,9.7,3.82\n2025-03-03,H-302,Harbourview,7.4,5.8,3.9,2.2,16.2,5.88\n2025-04-01,H-401,Westfield,5.6,4.9,3.7,3.8,13.0,4.94\n2025-04-02,H-401,Westfield,5.4,4.8,3.6,3.5,12.9,4.89\n2025-04-03,H-402,Westfield,8.8,6.6,4.3,0.0,19.7,7.05\n2025-05-01,H-101,Northbank,6.4,5.4,3.9,3.6,15.3,5.62\n2025-05-02,H-201,East Park,5.2,4.8,3.8,4.9,12.3,4.58\n2025-05-03,H-301,Harbourview,5.8,4.9,3.4,3.1,13.9,5.03\n2025-06-01,H-102,Northbank,9.0,6.8,5.4,0.0,21.2,7.61\n2025-06-02,H-202,East Park,8.7,6.7,5.2,1.0,20.2,7.38\n2025-06-03,H-402,Westfield,9.3,7.2,5.7,0.0,22.2,7.94\n", "label": "sample_energy_upload.csv", "tariff": {"peak": 0.4, "shoulder": 0.28, "offpeak": 0.18, "export_credit": 0.08, "daily_supply": 1.1, "gst": 0.1}, "household": "all", "tou": false, "date_order": "dmy"};</script>
+<script src="../assets/analysis.js"></script>
+<script src="../assets/studio.js"></script>
+</body>
+</html>

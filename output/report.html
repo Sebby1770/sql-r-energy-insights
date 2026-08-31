@@ -8,6 +8,7 @@
 </head>
 <body>
 <header>
+<p class="eyebrow">GridScope 0.3.0</p>
 <h1>GridScope Studio</h1>
 <p class="lede">Upload energy data, review clear charts, and spot cost and demand patterns without turning the page into a spreadsheet cave.</p>
 </header>
@@ -16,12 +17,15 @@
 <div>
 <p class="eyebrow">Personal workspace</p>
 <h2>Analyse Your CSV</h2>
-<p>Use a billing or meter file with a date column and kWh columns. Optional group, solar, and cost columns unlock richer comparisons.</p>
+<p>Use a billing or meter file with a date column and kWh columns. Filter by household, edit the tariff to rebill live, compare a second file, and export the current analysis table.</p>
 </div>
 <div class="upload-controls">
 <label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
 <button id="load-sample" type="button">Try Sample</button>
+<label class="file-picker file-picker-secondary" for="compare-csv">Compare CSV<input id="compare-csv" type="file" accept=".csv,text/csv"></label>
+<button id="compare-sample" type="button">Compare to sample</button>
 <button id="export-analysis" type="button" disabled>Export JSON</button>
+<button id="export-csv" type="button" disabled>Export CSV</button>
 <button id="theme-toggle" type="button" aria-pressed="false">Dark mode</button>
 <a class="template-link" href="../data/sample_energy_upload.csv">Template</a>
 </div>
@@ -30,7 +34,21 @@
 
 <section class="report-section" id="personal-results" hidden>
 <h2>Personal Analysis</h2>
+<div class="studio-tools">
+<div class="tool-block" id="household-filter-wrap" hidden>
+<label for="household-filter">Household</label>
+<select id="household-filter"></select>
+</div>
+<fieldset class="tool-block tariff-editor">
+<legend>Tariff (AUD/kWh)</legend>
+<label>Peak <input id="tariff-peak" type="number" inputmode="decimal" min="0" step="0.01" value="0.40"></label>
+<label>Shoulder <input id="tariff-shoulder" type="number" inputmode="decimal" min="0" step="0.01" value="0.28"></label>
+<label>Off-peak <input id="tariff-offpeak" type="number" inputmode="decimal" min="0" step="0.01" value="0.18"></label>
+<label>Export credit <input id="tariff-export" type="number" inputmode="decimal" min="0" step="0.01" value="0.08"></label>
+</fieldset>
+</div>
 <div class="metrics" id="personal-metrics"></div>
+<div class="metrics compare-metrics" id="compare-metrics" hidden></div>
 <h3>Signals</h3>
 <ul class="insight-list" id="personal-insights"></ul>
 <div class="results-grid">
@@ -45,6 +63,9 @@
 </div>
 <h3>Load Mix</h3>
 <div class="chart" id="mix-chart"></div>
+<h3>Weekday Heatmap</h3>
+<p class="chart-note" id="heatmap-note">Grid import by weekday and month. Hour buckets are used when a timestamp hour is present.</p>
+<div class="chart" id="heatmap-chart"></div>
 <h3>Monthly Table</h3>
 <div id="monthly-table"></div>
 <h3>Group Table</h3>
@@ -55,7 +76,6 @@
 <h3>Savings Opportunities</h3>
 <ul class="insight-list" id="recommendation-list"></ul>
 </section>
-
 <h2 class="demo-heading">Demo Portfolio</h2>
 <section class="metrics">
 <div class="metric"><span>Annual grid import</span><strong>58,110.8 kWh</strong></div>
@@ -106,6 +126,7 @@
 <tr><td> 9</td><td>14</td><td>Westfield</td><td>townhouse</td><td>3</td><td>2.5</td><td>4335.6</td><td>3663.3</td><td>1600.8</td><td>1445.2</td><td>1743.24</td><td>581.08</td><td>steady user</td></tr>
 <tr><td>10</td><td> 8</td><td>East Park</td><td>detached</td><td>3</td><td>4.0</td><td>4738.5</td><td>3532.8</td><td>2870.6</td><td>1579.5</td><td>1803.89</td><td>601.30</td><td>steady user</td></tr></tbody></table>
 </main>
+<script src="../assets/analysis.js"></script>
 <script src="../assets/studio.js"></script>
 </body>
 </html>
