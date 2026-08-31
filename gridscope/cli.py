@@ -89,6 +89,46 @@ def _read_text(path: Path) -> str:
         return path.read_text(encoding="latin-1")
 
 
+def _print_summary(analysis: dict, comparison: dict | None) -> None:
+    totals = analysis["totals"]
+    weekend = analysis.get("weekend") or {}
+    quality = analysis.get("quality") or {}
+    print(f"GridScope {VERSION}")
+    print(f"Records     {totals['records']}")
+    print(f"Days        {totals['days']}")
+    print(f"Households  {totals['households']}")
+    print(f"Grid kWh    {totals['grid']:.1f}")
+    print(f"Solar kWh   {totals['solar']:.1f}")
+    print(f"Supply      ${totals['supply_charge']:.2f}")
+    print(f"GST         ${totals['gst_amount']:.2f}")
+    print(f"Ex GST      ${totals['tariff_bill_ex_gst']:.2f}")
+    print(f"Tariff bill ${totals['tariff_bill']:.2f}")
+    cost = totals.get("cost_per_kwh")
+    if cost is not None:
+        print(f"Cost/kWh    ${float(cost):.3f}")
+    cheapest = (analysis.get("plans") or {}).get("cheapest")
+    if cheapest:
+        print(f"Cheapest    {cheapest}")
+    if weekend:
+        print(
+            f"Weekday     {weekend.get('weekday_kwh', 0):.1f} kWh / "
+            f"${float(weekend.get('weekday_bill') or 0):.2f}"
+        )
+        print(
+            f"Weekend     {weekend.get('weekend_kwh', 0):.1f} kWh / "
+            f"${float(weekend.get('weekend_bill') or 0):.2f}"
+        )
+    if quality.get("duplicate_keys") or quality.get("negative_energy"):
+        print(
+            f"Quality     {quality.get('duplicate_keys', 0)} duplicate day(s), "
+            f"{quality.get('negative_energy', 0)} negative row(s)"
+        )
+    if comparison is not None:
+        print(f"Shared days {comparison['shared_days']}")
+        print(f"Δ kWh       {comparison['delta_kwh']:.1f}")
+        print(f"Δ bill      ${comparison['delta_bill']:.2f}")
+
+
 def _print_plans(plans: dict) -> None:
     rows = (plans or {}).get("plans") or []
     if not rows:
@@ -174,23 +214,7 @@ def main(argv: list[str] | None = None) -> int:
             json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
             print(f"Wrote JSON: {json_path}")
 
-        if html_path is None and args.json_path is None and tables_dir is None:
-            totals = analysis["totals"]
-            print(f"GridScope {VERSION}")
-            print(f"Records     {totals['records']}")
-            print(f"Days        {totals['days']}")
-            print(f"Households  {totals['households']}")
-            print(f"Grid kWh    {totals['grid']:.1f}")
-            print(f"Solar kWh   {totals['solar']:.1f}")
-            print(f"Supply      ${totals['supply_charge']:.2f}")
-            print(f"GST         ${totals['gst_amount']:.2f}")
-            print(f"Ex GST      ${totals['tariff_bill_ex_gst']:.2f}")
-            print(f"Tariff bill ${totals['tariff_bill']:.2f}")
-            if comparison is not None:
-                print(f"Shared days {comparison['shared_days']}")
-                print(f"Δ kWh       {comparison['delta_kwh']:.1f}")
-                print(f"Δ bill      ${comparison['delta_bill']:.2f}")
-
+        _print_summary(analysis, comparison)
         if args.plans:
             _print_plans(analysis.get("plans") or {})
 

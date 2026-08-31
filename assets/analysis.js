@@ -26,7 +26,7 @@
  *   compare monthly_delta: shared month keys, delta_kwh = right.grid - left.grid
  */
 (function (root) {
-  const VERSION = "0.6.0";
+  const VERSION = "0.6.1";
 
   const DEFAULT_TARIFF = {
     peak: 0.4,
