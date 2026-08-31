@@ -9,10 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "data" / "sample_energy_upload.csv"
 
 
-def test_cli_writes_html_and_tables(tmp_path):
+def test_cli_writes_html_and_tables(tmp_path, capsys):
     html_path = tmp_path / "py-report.html"
     code = main([str(SAMPLE), "--html", str(html_path)])
     assert code == 0
+    out = capsys.readouterr().out
+    assert "Tariff bill" in out
+    assert "Cheapest" in out
+    assert "Cost/kWh" in out
     text = html_path.read_text(encoding="utf-8")
     assert "tariff-peak" in text
     assert "tariff-supply" in text

@@ -2,6 +2,11 @@
 
 All notable changes to GridScope Studio are documented in this file.
 
+## [0.6.1] - 2026-08-31
+
+### Added
+- CLI always prints a human summary (bill, cost/kWh, cheapest plan, weekday/weekend) even when writing HTML or JSON.
+
 ## [0.6.0] - 2026-08-31
 
 ### Added

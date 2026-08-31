@@ -1,6 +1,8 @@
 # GridScope Studio
 
-![version](https://img.shields.io/badge/version-0.6.0-2563eb)
+![version](https://img.shields.io/badge/version-0.6.1-2563eb)
+
+[github.com/Sebby1770/sql-r-energy-insights](https://github.com/Sebby1770/sql-r-energy-insights)
 
 A lightweight energy analysis studio for turning household billing or meter CSVs into retailer-style bills, dollar savings, plan comparison, charts, and short observations.
 
