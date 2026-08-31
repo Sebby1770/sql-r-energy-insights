@@ -1,4 +1,26 @@
-<section class="studio-panel" id="upload-studio">
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GridScope Studio</title>
+<meta name="description" content="Turn a household energy CSV into bills, plan comparison, and dollar savings. Runs entirely in your browser.">
+<meta name="theme-color" content="#172033">
+<meta property="og:title" content="GridScope Studio">
+<meta property="og:description" content="Upload a meter CSV. Get a retailer-style bill, the cheapest plan, and dollar savings — in this tab.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sebby1770.github.io/sql-r-energy-insights/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23172033'/%3E%3Cpath d='M8 22h16M10 18h3v4h-3zm5-6h3v10h-3zm5-5h3v15h-3z' fill='%233b82f6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="studio.css">
+</head>
+<body>
+<header>
+<p class="eyebrow">Live on GitHub Pages · data never leaves this tab</p>
+<h1>GridScope Studio</h1>
+<p class="lede">Upload a meter or bill CSV and get a retailer-style bill, the cheapest plan, and what you could save by shifting peak or using more of your solar. Everything is calculated in the browser. Drag a CSV onto the page, or try the sample already loaded below.</p>
+</header>
+<main>
+<section class="studio-panel" id="upload-studio" data-autoload="sample">
 <ol class="onboarding-strip" id="onboarding-strip">
 <li><span>1</span> Load a CSV</li>
 <li><span>2</span> Set your tariff</li>
@@ -7,7 +29,7 @@
 <div>
 <p class="eyebrow">Personal workspace</p>
 <h2>Analyse Your CSV</h2>
-<p>Use a billing or meter file with a date column and kWh columns. Filter by household, edit the tariff to rebill live, compare a second file, and export the current analysis table.</p>
+<p>Use a billing or meter file with a date column and kWh columns. Filter by household, edit the tariff to rebill live, compare a second file, and export the current analysis table. Drop one CSV to analyse it, or two to compare.</p>
 </div>
 <div class="upload-controls">
 <label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
@@ -19,7 +41,7 @@
 <button id="copy-summary" type="button" disabled>Copy summary</button>
 <button id="print-bill" type="button" disabled>Print bill</button>
 <button id="theme-toggle" type="button" aria-pressed="false">Dark mode</button>
-<a class="template-link" href="{{TEMPLATE_HREF}}">Template</a>
+<a class="template-link" href="sample_energy_upload.csv">Template</a>
 </div>
 <div class="status" id="upload-status">Waiting for data.</div>
 </section>
@@ -68,12 +90,12 @@ Merge duplicate household+day rows
 <p class="tou-banner" id="tou-note" hidden></p>
 <fieldset class="tool-block tariff-editor">
 <legend>Tariff (AUD)</legend>
-<label>Peak <input id="tariff-peak" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_PEAK}}"></label>
-<label>Shoulder <input id="tariff-shoulder" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_SHOULDER}}"></label>
-<label>Off-peak <input id="tariff-offpeak" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_OFFPEAK}}"></label>
-<label>Export credit <input id="tariff-export" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_EXPORT}}"></label>
-<label>Daily supply <input id="tariff-supply" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_SUPPLY}}"></label>
-<label>GST rate <input id="tariff-gst" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_GST}}"></label>
+<label>Peak <input id="tariff-peak" type="number" inputmode="decimal" min="0" step="0.01" value="0.40"></label>
+<label>Shoulder <input id="tariff-shoulder" type="number" inputmode="decimal" min="0" step="0.01" value="0.28"></label>
+<label>Off-peak <input id="tariff-offpeak" type="number" inputmode="decimal" min="0" step="0.01" value="0.18"></label>
+<label>Export credit <input id="tariff-export" type="number" inputmode="decimal" min="0" step="0.01" value="0.08"></label>
+<label>Daily supply <input id="tariff-supply" type="number" inputmode="decimal" min="0" step="0.01" value="1.10"></label>
+<label>GST rate <input id="tariff-gst" type="number" inputmode="decimal" min="0" step="0.01" value="0.10"></label>
 </fieldset>
 </div>
 <div class="metrics" id="personal-metrics"></div>
@@ -109,3 +131,17 @@ Merge duplicate household+day rows
 <h3>Savings Opportunities</h3>
 <ul class="insight-list" id="recommendation-list"></ul>
 </section>
+
+</main>
+<footer style="padding:24px 7vw 48px;color:var(--muted)">
+<p>Python CLI: <code>python3 -m gridscope your.csv --html report.html</code></p>
+<p>
+  <a href="https://github.com/Sebby1770/sql-r-energy-insights">Source on GitHub</a>
+  ·
+  <a href="https://sebby1770.github.io/sql-r-energy-insights/">Live studio</a>
+</p>
+</footer>
+<script src="analysis.js"></script>
+<script src="studio.js"></script>
+</body>
+</html>

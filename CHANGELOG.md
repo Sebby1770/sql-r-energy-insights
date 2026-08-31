@@ -2,6 +2,13 @@
 
 All notable changes to GridScope Studio are documented in this file.
 
+## [0.7.0] - 2026-08-31
+
+### Added
+- GitHub Pages studio at https://sebby1770.github.io/sql-r-energy-insights/ (sample CSV loads on first visit).
+- Drag-and-drop one CSV to analyse, or two to compare.
+- Copy a short bill summary and print the current bill.
+
 ## [0.6.1] - 2026-08-31
 
 ### Added

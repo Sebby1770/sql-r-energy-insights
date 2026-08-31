@@ -792,6 +792,31 @@
     downloadText(`energy-analysis${suffix}.csv`, GS().tableToCsv(table), "text/csv");
   }
 
+  function copySummary() {
+    if (!state.latestAnalysis) {
+      return;
+    }
+    const totals = state.latestAnalysis.totals || {};
+    const plans = ((state.latestAnalysis.plans || {}).plans) || [];
+    const winner = plans.find((plan) => plan.winner);
+    const lines = [
+      `GridScope bill for ${state.label || "this CSV"}`,
+      `Tariff bill: ${GS().formatMoney(totals.tariffBill ?? totals.tariff_bill)}`,
+      `Cost per kWh: ${GS().formatMoney(totals.cost_per_kwh ?? totals.costPerKwh)}`,
+      `Grid import: ${GS().formatNumber(totals.grid)} kWh across ${GS().formatNumber(totals.days, 0)} days`,
+      winner ? `Cheapest plan: ${winner.name} at ${GS().formatMoney(winner.bill)}` : ""
+    ].filter(Boolean);
+    const text = lines.join("\n");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => setStatus("ok", "Copied a short bill summary."),
+        () => setStatus("error", "Could not copy — select the numbers instead.")
+      );
+      return;
+    }
+    setStatus("error", "Clipboard is not available in this browser.");
+  }
+
   function applyTheme(theme) {
     const isDark = theme === "dark";
     document.body.classList.toggle("theme-dark", isDark);
@@ -883,7 +908,7 @@
       renderCompareMonthly(null);
     }
 
-    ["export-analysis", "export-csv"].forEach((id) => {
+    ["export-analysis", "export-csv", "copy-summary", "print-bill"].forEach((id) => {
       const button = document.getElementById(id);
       if (button) {
         button.disabled = false;
@@ -1002,6 +1027,38 @@
     if (exportCsvButton) {
       exportCsvButton.addEventListener("click", exportCsv);
     }
+    const copyButton = $("#copy-summary");
+    if (copyButton) {
+      copyButton.addEventListener("click", copySummary);
+    }
+    const printButton = $("#print-bill");
+    if (printButton) {
+      printButton.addEventListener("click", () => window.print());
+    }
+
+    const dropRoot = document.getElementById("upload-studio") || document.body;
+    ["dragenter", "dragover"].forEach((eventName) => {
+      dropRoot.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropRoot.classList.add("drop-active");
+      });
+    });
+    dropRoot.addEventListener("dragleave", (event) => {
+      if (!dropRoot.contains(event.relatedTarget)) {
+        dropRoot.classList.remove("drop-active");
+      }
+    });
+    dropRoot.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dropRoot.classList.remove("drop-active");
+      const files = Array.from((event.dataTransfer && event.dataTransfer.files) || []);
+      if (files[0]) {
+        readFile(files[0], (text) => handlePrimaryText(text, files[0].name));
+      }
+      if (files[1]) {
+        readFile(files[1], (text) => handleCompareText(text, files[1].name));
+      }
+    });
 
     input.addEventListener("change", () => {
       const file = input.files && input.files[0];
@@ -1099,6 +1156,13 @@
         state.household = boot.household;
         syncHouseholdFilter(state.primaryRows || []);
         refreshView();
+      }
+    } else {
+      const studio = document.getElementById("upload-studio");
+      const wantSample = (studio && studio.dataset.autoload === "sample")
+        || /(?:^|[?&])sample=1(?:&|$)/.test(window.location.search);
+      if (wantSample) {
+        loadSampleCsv();
       }
     }
   }

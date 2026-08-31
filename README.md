@@ -1,12 +1,14 @@
 # GridScope Studio
 
-![version](https://img.shields.io/badge/version-0.6.1-2563eb)
+![version](https://img.shields.io/badge/version-0.7.0-2563eb)
+
+**Live site:** [https://sebby1770.github.io/sql-r-energy-insights/](https://sebby1770.github.io/sql-r-energy-insights/)
 
 [github.com/Sebby1770/sql-r-energy-insights](https://github.com/Sebby1770/sql-r-energy-insights)
 
 A lightweight energy analysis studio for turning household billing or meter CSVs into retailer-style bills, dollar savings, plan comparison, charts, and short observations.
 
-The main report opens in a browser and lets people upload their own CSV locally. The Python engine (`python3 -m gridscope`) analyses the same files on the command line without R. The original R + SQLite pipeline is still available for the demo portfolio.
+The GitHub Pages studio runs entirely in the browser (sample data loads on first visit; your CSV never leaves the tab). The Python engine (`python3 -m gridscope`) analyses the same files on the command line without R. The original R + SQLite pipeline is still available for the demo portfolio.
 
 ## Quick Start
 
@@ -149,6 +151,7 @@ sqlite3 --version
 │   ├── studio.js
 │   ├── studio.css
 │   └── studio-panel.html
+├── web/                 GitHub Pages studio (assembled in Actions)
 ├── data/
 │   └── sample_energy_upload.csv
 ├── sql/

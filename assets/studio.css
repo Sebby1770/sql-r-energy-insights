@@ -580,3 +580,30 @@ tr:last-child td {
     justify-content: flex-start;
   }
 }
+
+.studio-panel.drop-active {
+  outline: 2px dashed var(--blue);
+  outline-offset: 6px;
+}
+
+@media print {
+  header,
+  .onboarding-strip,
+  .upload-controls,
+  footer,
+  .what-if-tools,
+  #theme-toggle {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+    color: #111;
+  }
+
+  .studio-panel,
+  .report-section {
+    box-shadow: none;
+    border: 0;
+  }
+}
