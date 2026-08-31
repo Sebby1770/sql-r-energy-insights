@@ -1,4 +1,4 @@
-opportunity,detail,impact
-Shift peak usage,Peak is 42.3% of consumption. Moving 10% of peak into off-peak could reduce demand charges.,medium
-Increase solar self-consumption,Solar exports are 20.4% of consumption. Battery or load shifting could capture more value.,high
-Review estimated spend,Average daily bill is $5.65 across 18 days.,medium
+opportunity,detail,impact,saving_aud
+Increase solar self-consumption,Solar exports are 20.4% of consumption. Using 50% of export on-site could save $6.63.,high,6.633000000000001
+Shift peak usage,Peak is 42.3% of consumption. Moving 10% of peak into off-peak could save $3.03.,medium,3.025000000000001
+Review estimated spend,Average daily bill is $5.65 across 18 days. Projected 30-day cost is $169.45.,medium,0.0

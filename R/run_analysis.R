@@ -292,6 +292,8 @@ load_studio_workspace <- function(root, template_href = "../data/sample_energy_u
   html <- gsub("{{TARIFF_SHOULDER}}", "0.28", html, fixed = TRUE)
   html <- gsub("{{TARIFF_OFFPEAK}}", "0.18", html, fixed = TRUE)
   html <- gsub("{{TARIFF_EXPORT}}", "0.08", html, fixed = TRUE)
+  html <- gsub("{{TARIFF_SUPPLY}}", "1.10", html, fixed = TRUE)
+  html <- gsub("{{TARIFF_GST}}", "0.10", html, fixed = TRUE)
   html
 }
 

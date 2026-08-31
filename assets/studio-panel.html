@@ -1,4 +1,9 @@
 <section class="studio-panel" id="upload-studio">
+<ol class="onboarding-strip" id="onboarding-strip">
+<li><span>1</span> Load a CSV</li>
+<li><span>2</span> Set your tariff</li>
+<li><span>3</span> Read the $ savings</li>
+</ol>
 <div>
 <p class="eyebrow">Personal workspace</p>
 <h2>Analyse Your CSV</h2>
@@ -19,21 +24,62 @@
 
 <section class="report-section" id="personal-results" hidden>
 <h2>Personal Analysis</h2>
+<div class="hero-savings" id="savings-hero">
+<p class="eyebrow">This month you could save</p>
+<strong id="savings-hero-amount">$0.00</strong>
+<p class="chart-note" id="savings-hero-note">Load a CSV to see quantified opportunities.</p>
+</div>
+<div class="what-if-tools">
+<div class="peak-shift-tool" id="peak-shift-wrap">
+<label for="peak-shift">If I shift <span id="peak-shift-label">10%</span> of peak to off-peak</label>
+<input id="peak-shift" type="range" min="0" max="30" value="10" step="1">
+<p class="chart-note" id="peak-shift-saving">Move the slider to estimate savings on this tariff.</p>
+</div>
+<div class="peak-shift-tool" id="solar-shift-wrap">
+<label for="solar-shift">If I self-consume <span id="solar-shift-label">50%</span> of solar export</label>
+<input id="solar-shift" type="range" min="0" max="100" value="50" step="1">
+<p class="chart-note" id="solar-shift-saving">Move the slider to estimate savings on this tariff.</p>
+</div>
+</div>
+<div class="plan-cards" id="plan-cards"></div>
 <div class="studio-tools">
 <div class="tool-block" id="household-filter-wrap" hidden>
 <label for="household-filter">Household</label>
 <select id="household-filter"></select>
 </div>
+<div class="tool-block">
+<label for="date-order">Date order</label>
+<select id="date-order">
+<option value="dmy" selected>DMY (AU)</option>
+<option value="mdy">MDY (US)</option>
+<option value="auto">Auto</option>
+</select>
+</div>
+<label class="tool-block tou-toggle" for="tou-toggle">
+<input id="tou-toggle" type="checkbox">
+Apply NSW-style TOU from hour
+</label>
+<label class="tool-block tou-toggle" for="dedupe-toggle">
+<input id="dedupe-toggle" type="checkbox">
+Merge duplicate household+day rows
+</label>
+<p class="tou-banner" id="tou-note" hidden></p>
 <fieldset class="tool-block tariff-editor">
-<legend>Tariff (AUD/kWh)</legend>
+<legend>Tariff (AUD)</legend>
 <label>Peak <input id="tariff-peak" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_PEAK}}"></label>
 <label>Shoulder <input id="tariff-shoulder" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_SHOULDER}}"></label>
 <label>Off-peak <input id="tariff-offpeak" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_OFFPEAK}}"></label>
 <label>Export credit <input id="tariff-export" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_EXPORT}}"></label>
+<label>Daily supply <input id="tariff-supply" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_SUPPLY}}"></label>
+<label>GST rate <input id="tariff-gst" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_GST}}"></label>
 </fieldset>
 </div>
 <div class="metrics" id="personal-metrics"></div>
+<div class="metrics" id="weekend-metrics"></div>
+<p class="coverage-callout" id="coverage-callout" hidden></p>
+<p class="quality-callout" id="quality-callout" hidden></p>
 <div class="metrics compare-metrics" id="compare-metrics" hidden></div>
+<div id="compare-monthly" hidden></div>
 <h3>Signals</h3>
 <ul class="insight-list" id="personal-insights"></ul>
 <div class="results-grid">

@@ -22,7 +22,7 @@ custom:
 	@echo "Open $(OUTPUT)"
 
 demo-py:
-	python3 -m gridscope data/sample_energy_upload.csv --html output/py-report.html
+	python3 -m gridscope data/sample_energy_upload.csv --html output/py-report.html --plans
 	@echo "Open output/py-report.html"
 
 test:

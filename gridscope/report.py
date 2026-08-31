@@ -12,6 +12,7 @@ from gridscope.analysis import (
     DEFAULT_TARIFF,
     VERSION,
     analysis_table,
+    coerce_tariff,
     table_to_csv,
 )
 
@@ -30,7 +31,7 @@ def load_studio_panel(
     template_href: str,
     tariff: Mapping[str, float] | None = None,
 ) -> str:
-    rates = dict(DEFAULT_TARIFF if tariff is None else tariff)
+    rates = coerce_tariff(DEFAULT_TARIFF if tariff is None else tariff)
     path = project_root() / "assets" / STUDIO_PANEL
     text = path.read_text(encoding="utf-8")
     replacements = {
@@ -39,6 +40,8 @@ def load_studio_panel(
         "{{TARIFF_SHOULDER}}": f"{float(rates['shoulder']):.2f}",
         "{{TARIFF_OFFPEAK}}": f"{float(rates['offpeak']):.2f}",
         "{{TARIFF_EXPORT}}": f"{float(rates['export_credit']):.2f}",
+        "{{TARIFF_SUPPLY}}": f"{float(rates['daily_supply']):.2f}",
+        "{{TARIFF_GST}}": f"{float(rates['gst']):.2f}",
     }
     for token, value in replacements.items():
         text = text.replace(token, value)
@@ -68,7 +71,11 @@ def _table(rows: list[Mapping[str, Any]], columns: list[tuple[str, str]], limit:
             if value is None:
                 text = "—"
             elif isinstance(value, float):
-                text = _number(value, 2 if "bill" in key else 1)
+                moneyish = any(
+                    token in key
+                    for token in ("bill", "gst", "supply", "saving", "delta")
+                )
+                text = _number(value, 2 if moneyish else 1)
             else:
                 text = str(value)
             cells.append(f"<td>{html.escape(text)}</td>")
@@ -88,11 +95,16 @@ def _recs(recommendations: list[Mapping[str, Any]]) -> str:
     items = []
     for item in recommendations:
         impact = html.escape(str(item.get("impact") or "low"))
+        saving = item.get("saving_aud")
+        saving_html = ""
+        if saving is not None:
+            saving_html = f" <span class=\"saving\">{html.escape(_money(float(saving)))}</span>"
         items.append(
             "<li><strong>"
             + html.escape(str(item.get("opportunity") or ""))
             + "</strong> "
             + html.escape(str(item.get("detail") or ""))
+            + saving_html
             + f' <span class="impact impact-{impact}">{impact} impact</span></li>'
         )
     return "<ul class=\"insight-list\">" + "".join(items) + "</ul>"
@@ -135,6 +147,10 @@ def write_tables(analysis: Mapping[str, Any], tables_dir: Path) -> list[Path]:
                 "grid_kwh": round(float(item["grid"]), 3),
                 "pct_of_average": round(float(item["pct_of_average"]), 1),
                 "anomaly_type": item["anomaly_type"],
+                "baseline": item.get("baseline"),
+                "baseline_kwh": None
+                if item.get("baseline_kwh") is None
+                else round(float(item["baseline_kwh"]), 3),
             }
         )
     anomaly_path = tables_dir / "py_anomalies.csv"
@@ -164,6 +180,22 @@ def write_tables(analysis: Mapping[str, Any], tables_dir: Path) -> list[Path]:
     heat_path.write_text(table_to_csv(heat_cells), encoding="utf-8")
     written.append(heat_path)
 
+    plan_payload = analysis.get("plans") or {}
+    plan_rows = []
+    for item in plan_payload.get("plans") or []:
+        plan_rows.append(
+            {
+                "name": item.get("name"),
+                "bill": round(float(item.get("bill") or 0), 2),
+                "delta_vs_cheapest": round(float(item.get("delta_vs_cheapest") or 0), 2),
+                "winner": bool(item.get("winner")),
+            }
+        )
+    if plan_rows:
+        plan_path = tables_dir / "py_plans.csv"
+        plan_path.write_text(table_to_csv(plan_rows), encoding="utf-8")
+        written.append(plan_path)
+
     return written
 
 
@@ -183,7 +215,7 @@ def write_html_report(
     sample = root / "data" / "sample_energy_upload.csv"
     assets_href = os_relpath(assets, html_path.parent)
     sample_href = os_relpath(sample, html_path.parent)
-    tariff = analysis.get("tariff") or DEFAULT_TARIFF
+    tariff = coerce_tariff(analysis.get("tariff") or DEFAULT_TARIFF)
     workspace = load_studio_panel(sample_href, tariff)
 
     totals = analysis["totals"]
@@ -194,6 +226,13 @@ def write_html_report(
     consumed = float(totals.get("consumed") or 0)
     solar_pct = (float(totals.get("solar") or 0) / consumed) * 100 if consumed else 0.0
     peak_pct = (float(totals.get("peak") or 0) / consumed) * 100 if consumed else 0.0
+    savings = sum(
+        float(item.get("saving_aud") or 0)
+        for item in (analysis.get("recommendations") or [])
+    )
+    plans = analysis.get("plans") or {}
+    plan_rows = list(plans.get("plans") or [])
+    cheapest = plans.get("cheapest") or "—"
 
     compare_html = ""
     if compare is not None:
@@ -214,6 +253,8 @@ def write_html_report(
         "label": source_label,
         "tariff": tariff,
         "household": analysis.get("household") or "all",
+        "tou": bool(analysis.get("tou")),
+        "date_order": analysis.get("date_order") or "dmy",
     }
 
     page = f"""<!doctype html>
@@ -228,7 +269,7 @@ def write_html_report(
 <header>
 <p class="eyebrow">GridScope {html.escape(VERSION)}</p>
 <h1>GridScope Studio</h1>
-<p class="lede">Python engine snapshot plus the local studio: household filter, live tariff rebill, compare, weekday heatmap, and CSV export. Data stays in the browser after this page is written.</p>
+<p class="lede">Python engine snapshot plus the local studio: household filter, live tariff rebill, plan compare, weekday heatmap, and CSV export. Data stays in the browser after this page is written.</p>
 </header>
 <main>
 {workspace}
@@ -242,7 +283,12 @@ def write_html_report(
 <div class="metric"><span>Households</span><strong>{totals['households']}</strong></div>
 <div class="metric"><span>Grid import</span><strong>{_number(totals['grid'])} kWh</strong></div>
 <div class="metric"><span>Solar export</span><strong>{_number(totals['solar'])} kWh</strong></div>
+<div class="metric"><span>Supply charge</span><strong>{_money(totals.get('supply_charge'))}</strong></div>
+<div class="metric"><span>GST</span><strong>{_money(totals.get('gst_amount'))}</strong></div>
+<div class="metric"><span>Bill ex GST</span><strong>{_money(totals.get('tariff_bill_ex_gst'))}</strong></div>
 <div class="metric"><span>Tariff bill</span><strong>{_money(totals['tariff_bill'])}</strong></div>
+<div class="metric"><span>This month you could save</span><strong>{_money(savings)}</strong></div>
+<div class="metric"><span>Cheapest plan</span><strong>{html.escape(str(cheapest))}</strong></div>
 </div>
 <ul class="insight-list">
 <li>Highest grid import month: {html.escape(highest['key']) if highest else "—"} at {_number(highest['grid']) if highest else "0"} kWh.</li>
@@ -259,6 +305,13 @@ def write_html_report(
     ("consumed_kwh", "Consumed"),
     ("tariff_bill", "Tariff bill"),
 ])}
+<h3>Plans</h3>
+{_table(plan_rows, [
+    ("name", "Plan"),
+    ("bill", "Bill"),
+    ("delta_vs_cheapest", "Δ vs cheapest"),
+    ("winner", "Winner"),
+])}
 <h3>Groups</h3>
 {_table(groups, [
     ("key", "Group"),
@@ -274,6 +327,8 @@ def write_html_report(
     ("grid", "Grid import"),
     ("pct_of_average", "% of average"),
     ("anomaly_type", "Type"),
+    ("baseline", "Baseline"),
+    ("baseline_kwh", "Baseline kWh"),
 ])}
 <h3>Savings opportunities</h3>
 {_recs(list(analysis.get("recommendations") or []))}

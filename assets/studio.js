@@ -48,11 +48,29 @@
 
   const state = {
     primaryRows: null,
+    primaryText: "",
     compareRows: null,
+    compareText: "",
     label: "",
+    compareLabel: "",
     household: "all",
     latestAnalysis: null
   };
+
+  function readDateOrder() {
+    const el = document.getElementById("date-order");
+    return el && el.value ? el.value : "dmy";
+  }
+
+  function readTou() {
+    const el = document.getElementById("tou-toggle");
+    return Boolean(el && el.checked);
+  }
+
+  function readDedupe() {
+    const el = document.getElementById("dedupe-toggle");
+    return Boolean(el && el.checked);
+  }
 
   function readTariff() {
     const defaults = GS().DEFAULT_TARIFF;
@@ -68,7 +86,9 @@
       peak: num("tariff-peak", defaults.peak),
       shoulder: num("tariff-shoulder", defaults.shoulder),
       offpeak: num("tariff-offpeak", defaults.offpeak),
-      export_credit: num("tariff-export", defaults.export_credit)
+      export_credit: num("tariff-export", defaults.export_credit),
+      daily_supply: num("tariff-supply", defaults.daily_supply),
+      gst: num("tariff-gst", defaults.gst)
     };
   }
 
@@ -78,7 +98,9 @@
       "tariff-peak": rates.peak,
       "tariff-shoulder": rates.shoulder,
       "tariff-offpeak": rates.offpeak,
-      "tariff-export": rates.export_credit
+      "tariff-export": rates.export_credit,
+      "tariff-supply": rates.daily_supply,
+      "tariff-gst": rates.gst
     };
     for (const [id, value] of Object.entries(mapping)) {
       const el = document.getElementById(id);
@@ -86,6 +108,10 @@
         el.value = Number(value).toFixed(2);
       }
     }
+  }
+
+  function parseText(text) {
+    return GS().parseEnergyCsv(text, { dateOrder: readDateOrder() });
   }
 
   function currentRows() {
@@ -130,9 +156,196 @@
       metric("Households", GS().formatNumber(totals.households, 0)),
       metric("Grid import", `${GS().formatNumber(totals.grid)} kWh`),
       metric("Solar export", `${GS().formatNumber(totals.solar)} kWh`),
+      metric("Peak share", `${GS().formatNumber(totals.peak_share ?? totals.peakShare)}%`),
+      metric("Solar share", `${GS().formatNumber(totals.solar_share ?? totals.solarShare)}%`),
       metric("CSV cost", GS().formatMoney(totals.bill)),
-      metric("Tariff bill", GS().formatMoney(totals.tariffBill))
+      metric("Supply charge", GS().formatMoney(totals.supplyCharge ?? totals.supply_charge)),
+      metric("GST", GS().formatMoney(totals.gstAmount ?? totals.gst_amount)),
+      metric("Bill ex GST", GS().formatMoney(totals.tariffBillExGst ?? totals.tariff_bill_ex_gst)),
+      metric("Tariff bill", GS().formatMoney(totals.tariffBill ?? totals.tariff_bill)),
+      metric("Cost per kWh", GS().formatMoney(totals.cost_per_kwh ?? totals.costPerKwh))
     ].join("");
+  }
+
+  function renderWeekend(weekend) {
+    const target = $("#weekend-metrics");
+    if (!target) {
+      return;
+    }
+    if (!weekend) {
+      target.innerHTML = "";
+      return;
+    }
+    const weekdayKwh = weekend.weekday_kwh ?? weekend.weekdayKwh ?? 0;
+    const weekendKwh = weekend.weekend_kwh ?? weekend.weekendKwh ?? 0;
+    const weekdayBill = weekend.weekday_bill ?? weekend.weekdayBill ?? 0;
+    const weekendBill = weekend.weekend_bill ?? weekend.weekendBill ?? 0;
+    const weekdayDays = weekend.weekday_days ?? weekend.weekdayDays ?? 0;
+    const weekendDays = weekend.weekend_days ?? weekend.weekendDays ?? 0;
+    target.innerHTML = [
+      metric("Weekday days", GS().formatNumber(weekdayDays, 0)),
+      metric("Weekend days", GS().formatNumber(weekendDays, 0)),
+      metric("Weekday kWh", `${GS().formatNumber(weekdayKwh)} kWh`),
+      metric("Weekend kWh", `${GS().formatNumber(weekendKwh)} kWh`),
+      metric("Weekday bill", GS().formatMoney(weekdayBill)),
+      metric("Weekend bill", GS().formatMoney(weekendBill))
+    ].join("");
+  }
+
+  function renderQuality(quality) {
+    const target = $("#quality-callout");
+    if (!target) {
+      return;
+    }
+    if (!quality) {
+      target.hidden = true;
+      target.textContent = "";
+      return;
+    }
+    const duplicates = quality.duplicate_keys ?? quality.duplicateKeys ?? 0;
+    const negatives = quality.negative_energy ?? quality.negativeEnergy ?? 0;
+    if (duplicates <= 0 && negatives <= 0) {
+      target.hidden = true;
+      target.textContent = "";
+      return;
+    }
+    const parts = [];
+    if (duplicates > 0) {
+      parts.push(`${GS().formatNumber(duplicates, 0)} duplicate household+day key${duplicates === 1 ? "" : "s"}`);
+    }
+    if (negatives > 0) {
+      parts.push(`${GS().formatNumber(negatives, 0)} row${negatives === 1 ? "" : "s"} with negative energy`);
+    }
+    target.hidden = false;
+    target.textContent = `Data quality: ${parts.join(" and ")}. Rows are kept, not dropped.`;
+  }
+
+  function updatePeakShift(analysis) {
+    const slider = $("#peak-shift");
+    const label = $("#peak-shift-label");
+    const saving = $("#peak-shift-saving");
+    if (!slider || !analysis) {
+      return;
+    }
+    const pct = Number(slider.value);
+    const fraction = Number.isFinite(pct) ? pct / 100 : 0;
+    if (label) {
+      label.textContent = `${Number.isFinite(pct) ? pct : 0}%`;
+    }
+    const result = GS().whatIfPeakShift(analysis.rows || [], readTariff(), fraction);
+    const amount = result.saving_aud ?? result.savingAud ?? 0;
+    if (saving) {
+      saving.textContent = fraction === 0
+        ? "No peak shift applied."
+        : `Estimated saving ${GS().formatMoney(amount)} on this tariff.`;
+    }
+  }
+
+  function updateSolarShift(analysis) {
+    const slider = $("#solar-shift");
+    const label = $("#solar-shift-label");
+    const saving = $("#solar-shift-saving");
+    if (!slider || !analysis) {
+      return;
+    }
+    const pct = Number(slider.value);
+    const fraction = Number.isFinite(pct) ? pct / 100 : 0;
+    if (label) {
+      label.textContent = `${Number.isFinite(pct) ? pct : 0}%`;
+    }
+    const result = GS().whatIfSolarSelf(analysis.rows || [], readTariff(), fraction);
+    const amount = result.saving_aud ?? result.savingAud ?? 0;
+    if (saving) {
+      saving.textContent = fraction === 0
+        ? "No solar self-consumption applied."
+        : `Estimated saving ${GS().formatMoney(amount)} on this tariff.`;
+    }
+  }
+
+  function renderCoverage(coverage) {
+    const target = $("#coverage-callout");
+    if (!target) {
+      return;
+    }
+    if (!coverage) {
+      target.hidden = true;
+      target.textContent = "";
+      return;
+    }
+    const recorded = coverage.recorded;
+    const span = coverage.span_days ?? coverage.spanDays ?? 0;
+    const densityPct = GS().formatNumber((Number(coverage.density) || 0) * 100, 0);
+    let text = "";
+    if (coverage.kind === "sparse") {
+      text = `This looks like a sample across a long span (${GS().formatNumber(recorded, 0)} days recorded over ${GS().formatNumber(span, 0)} calendar days, ${densityPct}% density), not a wall of missing dates.`;
+    } else if (coverage.kind === "short") {
+      text = `Short window: ${GS().formatNumber(recorded, 0)} recorded day(s) from ${coverage.first || "—"} to ${coverage.last || "—"}.`;
+    } else {
+      const missing = coverage.missing_count ?? coverage.missingCount ?? 0;
+      text = `Daily coverage from ${coverage.first || "—"} to ${coverage.last || "—"}: ${GS().formatNumber(recorded, 0)} of ${GS().formatNumber(span, 0)} days recorded`;
+      text += missing ? ` (${GS().formatNumber(missing, 0)} missing).` : ".";
+    }
+    target.hidden = false;
+    target.textContent = text;
+  }
+
+  function renderTouNote(analysis) {
+    const target = $("#tou-note");
+    if (!target) {
+      return;
+    }
+    const note = analysis.tou_note || analysis.touNote || "";
+    if (!readTou() || !note) {
+      target.hidden = true;
+      target.textContent = "";
+      return;
+    }
+    target.hidden = false;
+    target.textContent = note;
+  }
+
+  function renderHero(analysis) {
+    const amount = $("#savings-hero-amount");
+    const note = $("#savings-hero-note");
+    if (!amount) {
+      return;
+    }
+    const total = (analysis.recommendations || []).reduce((sum, item) => {
+      const value = item.saving_aud ?? item.savingAud ?? 0;
+      return sum + (Number(value) || 0);
+    }, 0);
+    amount.textContent = GS().formatMoney(total);
+    if (note) {
+      const count = (analysis.recommendations || []).filter((item) => (item.saving_aud ?? item.savingAud ?? 0) > 0).length;
+      note.textContent = count
+        ? `${count} quantified ${count === 1 ? "action" : "actions"} on this usage.`
+        : "No dollar-saving actions were flagged for this dataset.";
+    }
+  }
+
+  function renderPlans(analysis) {
+    const target = $("#plan-cards");
+    if (!target) {
+      return;
+    }
+    const payload = analysis.plans || GS().comparePlans(analysis.rows || [], null, (analysis.tariff || {}).gst);
+    const plans = payload.plans || [];
+    if (!plans.length) {
+      target.innerHTML = "";
+      return;
+    }
+    target.innerHTML = plans.map((plan) => {
+      const winner = Boolean(plan.winner);
+      const delta = plan.delta_vs_cheapest ?? plan.deltaVsCheapest ?? 0;
+      return `
+        <article class="plan-card${winner ? " winner" : ""}">
+          <span class="plan-name">${escapeHtml(plan.name)}</span>
+          <span class="plan-bill">${escapeHtml(GS().formatMoney(plan.bill))}</span>
+          <span class="plan-delta">${winner ? "Lowest bill on this usage" : `${escapeHtml(GS().formatMoney(delta))} vs cheapest`}</span>
+          ${winner ? '<span class="plan-badge">Winner</span>' : ""}
+        </article>
+      `;
+    }).join("");
   }
 
   function renderCompare(comparison) {
@@ -154,6 +367,41 @@
       metric("Shared days", GS().formatNumber(comparison.sharedDays, 0)),
       deltaMetric("Shared-day Δ kWh", comparison.sharedDeltaKwh, `${comparison.sharedDeltaKwh > 0 ? "+" : ""}${GS().formatNumber(comparison.sharedDeltaKwh)} kWh`)
     ].join("");
+  }
+
+  function renderCompareMonthly(comparison) {
+    const target = $("#compare-monthly");
+    if (!target) {
+      return;
+    }
+    const rows = comparison && (comparison.monthly_delta || comparison.monthlyDelta);
+    if (!comparison || !rows || !rows.length) {
+      target.hidden = true;
+      target.innerHTML = "";
+      return;
+    }
+    target.hidden = false;
+    const host = document.createElement("div");
+    renderTable(host, rows, [
+      { key: "month", label: "Month", format: (value) => value },
+      {
+        key: "delta_kwh",
+        label: "Δ kWh",
+        format: (value, row) => {
+          const delta = value ?? row.deltaKwh;
+          return `${delta > 0 ? "+" : ""}${GS().formatNumber(delta)} kWh`;
+        }
+      },
+      {
+        key: "delta_bill",
+        label: "Δ bill",
+        format: (value, row) => {
+          const delta = value ?? row.deltaBill;
+          return `${delta > 0 ? "+" : ""}${GS().formatMoney(delta)}`;
+        }
+      }
+    ]);
+    target.innerHTML = `<h3>Compare by month</h3>${host.innerHTML}`;
   }
 
   function emptyChart(message) {
@@ -252,11 +500,12 @@
       const x = pad.left + index * (barWidth + gap);
       const barHeight = (item.grid / maxValue) * (height - pad.top - pad.bottom);
       const y = height - pad.bottom - barHeight;
-      const fill = item.anomalyType === "high_spike" ? colors.red : colors.blue;
+      const kind = item.anomalyType || item.anomaly_type;
+      const fill = kind === "high_spike" ? colors.red : colors.blue;
       return `
         <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="4" fill="${fill}" />
         <text x="${x + barWidth / 2}" y="${height - 48}" text-anchor="middle" font-size="11" fill="${colors.muted}">${escapeHtml(item.day)}</text>
-        <text x="${x + barWidth / 2}" y="${height - 28}" text-anchor="middle" font-size="11" fill="${colors.muted}">${escapeHtml(item.anomalyType)}</text>
+        <text x="${x + barWidth / 2}" y="${height - 28}" text-anchor="middle" font-size="11" fill="${colors.muted}">${escapeHtml(kind)}</text>
       `;
     }).join("");
 
@@ -271,12 +520,12 @@
     const width = 760;
     const height = 310;
     const pad = { top: 30, right: 18, bottom: 54, left: 58 };
-    const maxValue = Math.max(...monthly.map((item) => Math.abs(item.tariffBill || 0)), 1);
+    const maxValue = Math.max(...monthly.map((item) => Math.abs(item.tariffBill || item.tariff_bill || 0)), 1);
     const gap = 12;
     const barWidth = Math.max(14, (width - pad.left - pad.right - gap * (monthly.length - 1)) / monthly.length);
     const bars = monthly.map((item, index) => {
       const x = pad.left + index * (barWidth + gap);
-      const value = item.tariffBill || 0;
+      const value = item.tariffBill || item.tariff_bill || 0;
       const barHeight = (Math.abs(value) / maxValue) * (height - pad.top - pad.bottom);
       const y = height - pad.bottom - barHeight;
       return `
@@ -341,17 +590,23 @@
     const lowest = monthly.reduce((best, item) => (item.grid < best.grid ? item : best), monthly[0]);
     const solarOffset = totals.consumed > 0 ? (totals.solar / totals.consumed) * 100 : 0;
     const peakShare = totals.consumed > 0 ? (totals.peak / totals.consumed) * 100 : 0;
+    const tariffBill = totals.tariffBill ?? totals.tariff_bill;
+    const cheapest = analysis.plans && analysis.plans.cheapest;
     const billInsight = totals.bill === null
-      ? `No bill column was supplied. Tariff bill is ${GS().formatMoney(totals.tariffBill)}.`
-      : `Estimated CSV spend is ${GS().formatMoney(totals.bill)}. Tariff bill is ${GS().formatMoney(totals.tariffBill)}.`;
+      ? `No bill column was supplied. Tariff bill is ${GS().formatMoney(tariffBill)}.`
+      : `Estimated CSV spend is ${GS().formatMoney(totals.bill)}. Tariff bill is ${GS().formatMoney(tariffBill)}.`;
 
-    return [
+    const insights = [
       `Highest grid import month: ${highest.key} at ${GS().formatNumber(highest.grid)} kWh.`,
       `Lowest grid import month: ${lowest.key} at ${GS().formatNumber(lowest.grid)} kWh.`,
       `Solar exports equal ${GS().formatNumber(solarOffset)}% of recorded consumption.`,
       `Peak usage is ${GS().formatNumber(peakShare)}% of recorded consumption.`,
       billInsight
     ];
+    if (cheapest) {
+      insights.push(`Cheapest named plan on this usage: ${cheapest}.`);
+    }
+    return insights;
   }
 
   function renderInsights(analysis) {
@@ -393,13 +648,20 @@
       return;
     }
 
-    container.innerHTML = recommendations.map((item) => `
+    container.innerHTML = recommendations.map((item) => {
+      const saving = item.saving_aud ?? item.savingAud;
+      const savingHtml = Number.isFinite(saving)
+        ? `<span class="saving">${escapeHtml(GS().formatMoney(saving))}</span>`
+        : "";
+      return `
       <li>
         <strong>${escapeHtml(item.opportunity)}</strong>
         ${escapeHtml(item.detail)}
+        ${savingHtml}
         <span class="impact impact-${escapeHtml(item.impact)}">${escapeHtml(item.impact)} impact</span>
       </li>
-    `).join("");
+    `;
+    }).join("");
   }
 
   function renderTables(analysis) {
@@ -409,7 +671,29 @@
       { key: "solar", label: "Solar export", format: (value) => `${GS().formatNumber(value)} kWh` },
       { key: "consumed", label: "Consumed", format: (value) => `${GS().formatNumber(value)} kWh` },
       { key: "bill", label: "CSV cost", format: (value) => GS().formatMoney(value) },
-      { key: "tariffBill", label: "Tariff bill", format: (value) => GS().formatMoney(value) }
+      { key: "tariffBill", label: "Tariff bill", format: (value, row) => GS().formatMoney(value ?? row.tariff_bill) },
+      {
+        key: "mom_grid",
+        label: "MoM grid",
+        format: (value, row) => {
+          const delta = value ?? row.momGrid;
+          if (delta === null || delta === undefined) {
+            return "—";
+          }
+          return `${delta > 0 ? "+" : ""}${GS().formatNumber(delta)} kWh`;
+        }
+      },
+      {
+        key: "mom_bill",
+        label: "MoM bill",
+        format: (value, row) => {
+          const delta = value ?? row.momBill;
+          if (delta === null || delta === undefined) {
+            return "—";
+          }
+          return `${delta > 0 ? "+" : ""}${GS().formatMoney(delta)}`;
+        }
+      }
     ]);
 
     renderTable($("#group-table"), analysis.groups, [
@@ -417,15 +701,28 @@
       { key: "records", label: "Records", format: (value) => GS().formatNumber(value, 0) },
       { key: "households", label: "Households", format: (value) => GS().formatNumber(value, 0) },
       { key: "grid", label: "Grid import", format: (value) => `${GS().formatNumber(value)} kWh` },
-      { key: "solar", label: "Solar export", format: (value) => `${GS().formatNumber(value)} kWh` }
+      { key: "solar", label: "Solar export", format: (value) => `${GS().formatNumber(value)} kWh` },
+      {
+        key: "kwh_per_household",
+        label: "kWh / household",
+        format: (value, row) => {
+          const per = value ?? row.kwhPerHousehold;
+          if (per === null || per === undefined) {
+            return "—";
+          }
+          return `${GS().formatNumber(per)} kWh`;
+        }
+      }
     ]);
 
     renderTable($("#anomaly-table"), analysis.anomalies, [
       { key: "day", label: "Day", format: (value) => value },
       { key: "neighbourhood", label: "Group", format: (value) => value },
       { key: "grid", label: "Grid import", format: (value) => `${GS().formatNumber(value)} kWh` },
-      { key: "pctOfAverage", label: "% of average", format: (value) => `${GS().formatNumber(value)}%` },
-      { key: "anomalyType", label: "Type", format: (value) => value }
+      { key: "pctOfAverage", label: "% of average", format: (value, row) => `${GS().formatNumber(value ?? row.pct_of_average)}%` },
+      { key: "anomalyType", label: "Type", format: (value, row) => value || row.anomaly_type },
+      { key: "baseline", label: "Baseline", format: (value) => value || "—" },
+      { key: "baselineKwh", label: "Baseline kWh", format: (value, row) => `${GS().formatNumber(value ?? row.baseline_kwh)} kWh` }
     ]);
   }
 
@@ -473,7 +770,15 @@
       groups: state.latestAnalysis.groups,
       anomalies: state.latestAnalysis.anomalies,
       recommendations: state.latestAnalysis.recommendations,
-      heatmap: state.latestAnalysis.heatmap
+      heatmap: state.latestAnalysis.heatmap,
+      plans: state.latestAnalysis.plans,
+      coverage: state.latestAnalysis.coverage,
+      tou_applied: state.latestAnalysis.tou_applied ?? state.latestAnalysis.touApplied,
+      tou_note: state.latestAnalysis.tou_note ?? state.latestAnalysis.touNote,
+      weekend: state.latestAnalysis.weekend,
+      quality: state.latestAnalysis.quality,
+      what_if: state.latestAnalysis.what_if ?? state.latestAnalysis.whatIf,
+      what_if_solar: state.latestAnalysis.what_if_solar ?? state.latestAnalysis.whatIfSolar
     };
     downloadText("energy-analysis.json", JSON.stringify(payload, null, 2), "application/json");
   }
@@ -511,13 +816,21 @@
     if (!state.primaryRows) {
       return;
     }
-    const analysis = GS().getAnalysis(currentRows(), readTariff(), "all");
+    const analysis = GS().getAnalysis(currentRows(), readTariff(), "all", readTou(), readDedupe());
     state.latestAnalysis = analysis;
     const results = $("#personal-results");
     if (results) {
       results.hidden = false;
     }
+    renderHero(analysis);
+    updatePeakShift(analysis);
+    updateSolarShift(analysis);
+    renderPlans(analysis);
     renderMetrics(analysis);
+    renderWeekend(analysis.weekend);
+    renderCoverage(analysis.coverage);
+    renderQuality(analysis.quality);
+    renderTouNote(analysis);
     renderInsights(analysis);
     const monthlyChart = $("#monthly-chart");
     const mixChart = $("#mix-chart");
@@ -551,13 +864,23 @@
     const compareRows = currentCompareRows();
     if (compareRows) {
       try {
-        renderCompare(GS().compareDatasets(currentRows(), compareRows, readTariff()));
+        let left = readTou() ? GS().applyTou(currentRows()) : currentRows();
+        let right = readTou() ? GS().applyTou(compareRows) : compareRows;
+        if (readDedupe()) {
+          left = GS().dedupeRows(left);
+          right = GS().dedupeRows(right);
+        }
+        const comparison = GS().compareDatasets(left, right, readTariff());
+        renderCompare(comparison);
+        renderCompareMonthly(comparison);
       } catch (error) {
         renderCompare(null);
+        renderCompareMonthly(null);
         setStatus("error", error.message);
       }
     } else {
       renderCompare(null);
+      renderCompareMonthly(null);
     }
 
     ["export-analysis", "export-csv"].forEach((id) => {
@@ -570,7 +893,8 @@
 
   function handlePrimaryText(text, label) {
     try {
-      const rows = GS().normaliseRows(text);
+      const rows = parseText(text);
+      state.primaryText = text;
       state.primaryRows = rows;
       state.label = label;
       state.household = "all";
@@ -592,12 +916,32 @@
         setStatus("error", "Load a primary CSV before comparing.");
         return;
       }
-      state.compareRows = GS().normaliseRows(text);
+      state.compareText = text;
+      state.compareRows = parseText(text);
+      state.compareLabel = label;
       setStatus("ok", `${state.label} vs ${label}: compare ready.`);
       refreshView();
     } catch (error) {
       state.compareRows = null;
+      state.compareText = "";
       renderCompare(null);
+      renderCompareMonthly(null);
+      setStatus("error", error.message);
+    }
+  }
+
+  function reparseFromText() {
+    if (!state.primaryText) {
+      return;
+    }
+    try {
+      state.primaryRows = parseText(state.primaryText);
+      syncHouseholdFilter(state.primaryRows);
+      if (state.compareText) {
+        state.compareRows = parseText(state.compareText);
+      }
+      refreshView();
+    } catch (error) {
       setStatus("error", error.message);
     }
   }
@@ -609,6 +953,28 @@
       setStatus("error", "The file could not be read.");
     };
     reader.readAsText(file);
+  }
+
+  function sampleHref() {
+    const link = document.querySelector("#upload-studio .template-link");
+    return link ? link.getAttribute("href") : "";
+  }
+
+  function loadSampleCsv() {
+    const href = sampleHref();
+    if (href && window.location.protocol !== "file:") {
+      fetch(href)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error("sample fetch failed");
+          }
+          return response.text();
+        })
+        .then((text) => handlePrimaryText(text, "Sample data"))
+        .catch(() => handlePrimaryText(sampleCsv, "Sample data"));
+      return;
+    }
+    handlePrimaryText(sampleCsv, "Sample data");
   }
 
   function init() {
@@ -645,7 +1011,7 @@
       readFile(file, (text) => handlePrimaryText(text, file.name));
     });
 
-    sample.addEventListener("click", () => handlePrimaryText(sampleCsv, "Sample data"));
+    sample.addEventListener("click", loadSampleCsv);
 
     const compareInput = $("#compare-csv");
     if (compareInput) {
@@ -671,14 +1037,59 @@
       });
     }
 
-    ["tariff-peak", "tariff-shoulder", "tariff-offpeak", "tariff-export"].forEach((id) => {
+    const dateOrder = $("#date-order");
+    if (dateOrder) {
+      dateOrder.addEventListener("change", reparseFromText);
+    }
+
+    const touToggle = $("#tou-toggle");
+    if (touToggle) {
+      touToggle.addEventListener("change", refreshView);
+    }
+
+    const dedupeToggle = $("#dedupe-toggle");
+    if (dedupeToggle) {
+      dedupeToggle.addEventListener("change", refreshView);
+    }
+
+    ["tariff-peak", "tariff-shoulder", "tariff-offpeak", "tariff-export", "tariff-supply", "tariff-gst"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) {
         el.addEventListener("input", refreshView);
       }
     });
 
+    const peakShift = $("#peak-shift");
+    if (peakShift) {
+      peakShift.addEventListener("input", () => {
+        if (state.latestAnalysis) {
+          updatePeakShift(state.latestAnalysis);
+        }
+      });
+    }
+
+    const solarShift = $("#solar-shift");
+    if (solarShift) {
+      solarShift.addEventListener("input", () => {
+        if (state.latestAnalysis) {
+          updateSolarShift(state.latestAnalysis);
+        }
+      });
+    }
+
     const boot = window.GRIDSCOPE_BOOTSTRAP;
+    if (boot && boot.date_order) {
+      const orderEl = $("#date-order");
+      if (orderEl) {
+        orderEl.value = boot.date_order;
+      }
+    }
+    if (boot && boot.tou) {
+      const touEl = $("#tou-toggle");
+      if (touEl) {
+        touEl.checked = true;
+      }
+    }
     if (boot && boot.tariff) {
       applyTariffToForm(boot.tariff);
     }
