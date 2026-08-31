@@ -1,35 +1,47 @@
 <section class="studio-panel" id="upload-studio">
 <ol class="onboarding-strip" id="onboarding-strip">
-<li><span>1</span> Load a CSV</li>
-<li><span>2</span> Set your tariff</li>
-<li><span>3</span> Read the $ savings</li>
+<li><span>01</span> Intake the CSV</li>
+<li><span>02</span> Set the tariff</li>
+<li><span>03</span> Read the recoverable $</li>
 </ol>
-<div>
-<p class="eyebrow">Personal workspace</p>
-<h2>Analyse Your CSV</h2>
+<div class="deck-copy">
+<p class="bay">Bay 01 · Intake</p>
+<h2>Drop the meter tape.</h2>
 <p>Use a billing or meter file with a date column and kWh columns. Filter by household, edit the tariff to rebill live, compare a second file, and export the current analysis table.</p>
 </div>
 <div class="upload-controls">
-<label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
-<button id="load-sample" type="button">Try Sample</button>
-<label class="file-picker file-picker-secondary" for="compare-csv">Compare CSV<input id="compare-csv" type="file" accept=".csv,text/csv"></label>
-<button id="compare-sample" type="button">Compare to sample</button>
-<button id="export-analysis" type="button" disabled>Export JSON</button>
-<button id="export-csv" type="button" disabled>Export CSV</button>
-<button id="copy-summary" type="button" disabled>Copy summary</button>
-<button id="print-bill" type="button" disabled>Print bill</button>
-<button id="theme-toggle" type="button" aria-pressed="false">Dark mode</button>
-<a class="template-link" href="{{TEMPLATE_HREF}}">Template</a>
+  <div class="cluster">
+    <label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
+    <button id="load-sample" type="button">Load sample</button>
+  </div>
+  <div class="cluster">
+    <label class="file-picker file-picker-secondary" for="compare-csv">Compare CSV<input id="compare-csv" type="file" accept=".csv,text/csv"></label>
+    <button id="compare-sample" type="button">Compare to sample</button>
+  </div>
+  <div class="cluster">
+    <button id="export-analysis" type="button" disabled>Export JSON</button>
+    <button id="export-csv" type="button" disabled>Export CSV</button>
+    <button id="copy-summary" type="button" disabled>Copy summary</button>
+    <button id="print-bill" type="button" disabled>Print bill</button>
+  </div>
+  <div class="cluster">
+    <button id="theme-toggle" data-theme-toggle type="button" aria-pressed="false">Daylight</button>
+    <a class="template-link" href="{{TEMPLATE_HREF}}">Template</a>
+  </div>
 </div>
 <div class="status" id="upload-status">Waiting for data.</div>
 </section>
 
 <section class="report-section" id="personal-results" hidden>
-<h2>Personal Analysis</h2>
+<p class="bay">Bay 02 · Receipt</p>
+<h2>The bill, rewritten</h2>
 <div class="hero-savings" id="savings-hero">
-<p class="eyebrow">This month you could save</p>
-<strong id="savings-hero-amount">$0.00</strong>
-<p class="chart-note" id="savings-hero-note">Load a CSV to see quantified opportunities.</p>
+  <div class="gauge" aria-hidden="true"></div>
+  <div>
+    <p class="eyebrow">Recoverable on this usage</p>
+    <strong id="savings-hero-amount">$0.00</strong>
+    <p class="chart-note" id="savings-hero-note">Load a CSV to see quantified opportunities.</p>
+  </div>
 </div>
 <div class="what-if-tools">
 <div class="peak-shift-tool" id="peak-shift-wrap">
@@ -44,6 +56,8 @@
 </div>
 </div>
 <div class="plan-cards" id="plan-cards"></div>
+
+<p class="bay">Bay 03 · Console</p>
 <div class="studio-tools">
 <div class="tool-block" id="household-filter-wrap" hidden>
 <label for="household-filter">Household</label>
@@ -76,6 +90,8 @@ Merge duplicate household+day rows
 <label>GST rate <input id="tariff-gst" type="number" inputmode="decimal" min="0" step="0.01" value="{{TARIFF_GST}}"></label>
 </fieldset>
 </div>
+
+<p class="bay">Bay 04 · Instruments</p>
 <div class="metrics" id="personal-metrics"></div>
 <div class="metrics" id="weekend-metrics"></div>
 <p class="coverage-callout" id="coverage-callout" hidden></p>
@@ -84,9 +100,11 @@ Merge duplicate household+day rows
 <div id="compare-monthly" hidden></div>
 <h3>Signals</h3>
 <ul class="insight-list" id="personal-insights"></ul>
+
+<p class="bay">Bay 05 · Traces</p>
 <div class="results-grid">
 <div>
-<h3>Monthly Demand</h3>
+<h3>Monthly demand</h3>
 <div class="chart" id="monthly-chart"></div>
 </div>
 <div>
@@ -94,18 +112,20 @@ Merge duplicate household+day rows
 <div class="chart" id="cost-chart"></div>
 </div>
 </div>
-<h3>Load Mix</h3>
+<h3>Load mix</h3>
 <div class="chart" id="mix-chart"></div>
-<h3>Weekday Heatmap</h3>
+<h3>Weekday heatmap</h3>
 <p class="chart-note" id="heatmap-note">Grid import by weekday and month. Hour buckets are used when a timestamp hour is present.</p>
 <div class="chart" id="heatmap-chart"></div>
-<h3>Monthly Table</h3>
+
+<p class="bay">Bay 06 · Ledger</p>
+<h3>Monthly table</h3>
 <div id="monthly-table"></div>
-<h3>Group Table</h3>
+<h3>Group table</h3>
 <div id="group-table"></div>
-<h3>Unusual Days</h3>
+<h3>Unusual days</h3>
 <div class="chart" id="anomaly-chart"></div>
 <div id="anomaly-table"></div>
-<h3>Savings Opportunities</h3>
+<h3>Savings opportunities</h3>
 <ul class="insight-list" id="recommendation-list"></ul>
 </section>

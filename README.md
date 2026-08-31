@@ -1,6 +1,6 @@
 # GridScope Studio
 
-![version](https://img.shields.io/badge/version-0.7.0-2563eb)
+![version](https://img.shields.io/badge/version-0.8.0-c6f35a)
 
 **Live site:** [https://sebby1770.github.io/sql-r-energy-insights/](https://sebby1770.github.io/sql-r-energy-insights/)
 

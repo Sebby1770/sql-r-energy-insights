@@ -2,6 +2,11 @@
 
 All notable changes to GridScope Studio are documented in this file.
 
+## [0.8.0] - 2026-08-31
+
+### Changed
+- Studio visual identity: night switchyard (copper traces, phosphor readouts, bay-labelled consoles). Dark by default with a Daylight mode. GitHub Pages and Python HTML reports share the same skin.
+
 ## [0.7.0] - 2026-08-31
 
 ### Added

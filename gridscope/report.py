@@ -263,14 +263,21 @@ def write_html_report(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GridScope Studio</title>
+<meta name="theme-color" content="#0b0d09">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{html.escape(assets_href)}/studio.css">
 </head>
 <body>
-<header>
+<header class="mast">
 <p class="eyebrow">GridScope {html.escape(VERSION)}</p>
-<h1>GridScope Studio</h1>
-<p class="lede">Python engine snapshot plus the local studio: household filter, live tariff rebill, plan compare, weekday heatmap, and CSV export. Data stays in the browser after this page is written.</p>
+<div class="mast-meta"><span class="live-dot" aria-hidden="true"></span> Written locally</div>
 </header>
+<section class="hero-stage">
+<h1>The bill, from the engine.</h1>
+<p class="lede">Python snapshot plus the local studio: household filter, live tariff rebill, plan compare, weekday heatmap, and CSV export. Data stays in the browser after this page is written.</p>
+</section>
 <main>
 {workspace}
 

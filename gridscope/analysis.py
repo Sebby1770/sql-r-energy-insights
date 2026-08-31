@@ -40,7 +40,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 DEFAULT_TARIFF: dict[str, float] = {
     "peak": 0.40,

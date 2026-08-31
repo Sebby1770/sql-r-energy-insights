@@ -20,14 +20,18 @@
 2025-06-03,H-402,Westfield,9.3,7.2,5.7,0,22.2,7.94`;
 
   const colors = {
-    blue: "#2563eb",
-    green: "#10b981",
-    amber: "#f59e0b",
-    red: "#ef4444",
-    violet: "#7c3aed",
-    ink: "#172033",
-    muted: "#667085",
-    line: "#d9e2ef"
+    blue: "#7fe3d0",
+    green: "#c6f35a",
+    amber: "#d4a05a",
+    red: "#e35d2a",
+    violet: "#c9a6ff",
+    ink: "#f4efe3",
+    muted: "#a39b88",
+    line: "rgba(212, 160, 90, 0.28)",
+    copper: "#d4a05a",
+    phosphor: "#c6f35a",
+    cyan: "#7fe3d0",
+    ember: "#e35d2a"
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -129,8 +133,9 @@
     return filtered.length ? filtered : state.compareRows;
   }
 
-  function metric(label, value) {
-    return `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+  function metric(label, value, kind) {
+    const attr = kind ? ` data-kind="${escapeHtml(kind)}"` : "";
+    return `<div class="metric"${attr}><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
   }
 
   function deltaClass(value) {
@@ -151,19 +156,19 @@
       return;
     }
     target.innerHTML = [
-      metric("Records", GS().formatNumber(totals.records, 0)),
-      metric("Days covered", GS().formatNumber(totals.days, 0)),
-      metric("Households", GS().formatNumber(totals.households, 0)),
-      metric("Grid import", `${GS().formatNumber(totals.grid)} kWh`),
-      metric("Solar export", `${GS().formatNumber(totals.solar)} kWh`),
-      metric("Peak share", `${GS().formatNumber(totals.peak_share ?? totals.peakShare)}%`),
-      metric("Solar share", `${GS().formatNumber(totals.solar_share ?? totals.solarShare)}%`),
-      metric("CSV cost", GS().formatMoney(totals.bill)),
-      metric("Supply charge", GS().formatMoney(totals.supplyCharge ?? totals.supply_charge)),
-      metric("GST", GS().formatMoney(totals.gstAmount ?? totals.gst_amount)),
-      metric("Bill ex GST", GS().formatMoney(totals.tariffBillExGst ?? totals.tariff_bill_ex_gst)),
-      metric("Tariff bill", GS().formatMoney(totals.tariffBill ?? totals.tariff_bill)),
-      metric("Cost per kWh", GS().formatMoney(totals.cost_per_kwh ?? totals.costPerKwh))
+      metric("Records", GS().formatNumber(totals.records, 0), "count"),
+      metric("Days covered", GS().formatNumber(totals.days, 0), "count"),
+      metric("Households", GS().formatNumber(totals.households, 0), "count"),
+      metric("Grid import", `${GS().formatNumber(totals.grid)} kWh`, "energy"),
+      metric("Solar export", `${GS().formatNumber(totals.solar)} kWh`, "energy"),
+      metric("Peak share", `${GS().formatNumber(totals.peak_share ?? totals.peakShare)}%`, "share"),
+      metric("Solar share", `${GS().formatNumber(totals.solar_share ?? totals.solarShare)}%`, "share"),
+      metric("CSV cost", GS().formatMoney(totals.bill), "money"),
+      metric("Supply charge", GS().formatMoney(totals.supplyCharge ?? totals.supply_charge), "money"),
+      metric("GST", GS().formatMoney(totals.gstAmount ?? totals.gst_amount), "money"),
+      metric("Bill ex GST", GS().formatMoney(totals.tariffBillExGst ?? totals.tariff_bill_ex_gst), "money"),
+      metric("Tariff bill", GS().formatMoney(totals.tariffBill ?? totals.tariff_bill), "money"),
+      metric("Cost per kWh", GS().formatMoney(totals.cost_per_kwh ?? totals.costPerKwh), "money")
     ].join("");
   }
 
@@ -183,12 +188,12 @@
     const weekdayDays = weekend.weekday_days ?? weekend.weekdayDays ?? 0;
     const weekendDays = weekend.weekend_days ?? weekend.weekendDays ?? 0;
     target.innerHTML = [
-      metric("Weekday days", GS().formatNumber(weekdayDays, 0)),
-      metric("Weekend days", GS().formatNumber(weekendDays, 0)),
-      metric("Weekday kWh", `${GS().formatNumber(weekdayKwh)} kWh`),
-      metric("Weekend kWh", `${GS().formatNumber(weekendKwh)} kWh`),
-      metric("Weekday bill", GS().formatMoney(weekdayBill)),
-      metric("Weekend bill", GS().formatMoney(weekendBill))
+      metric("Weekday days", GS().formatNumber(weekdayDays, 0), "count"),
+      metric("Weekend days", GS().formatNumber(weekendDays, 0), "count"),
+      metric("Weekday kWh", `${GS().formatNumber(weekdayKwh)} kWh`, "energy"),
+      metric("Weekend kWh", `${GS().formatNumber(weekendKwh)} kWh`, "energy"),
+      metric("Weekday bill", GS().formatMoney(weekdayBill), "money"),
+      metric("Weekend bill", GS().formatMoney(weekendBill), "money")
     ].join("");
   }
 
@@ -339,9 +344,10 @@
       const delta = plan.delta_vs_cheapest ?? plan.deltaVsCheapest ?? 0;
       return `
         <article class="plan-card${winner ? " winner" : ""}">
+          <span class="plan-kicker">${winner ? "Lowest on this usage" : "Named plan"}</span>
           <span class="plan-name">${escapeHtml(plan.name)}</span>
           <span class="plan-bill">${escapeHtml(GS().formatMoney(plan.bill))}</span>
-          <span class="plan-delta">${winner ? "Lowest bill on this usage" : `${escapeHtml(GS().formatMoney(delta))} vs cheapest`}</span>
+          <span class="plan-delta">${winner ? "Cheapest plate for this tape" : `${escapeHtml(GS().formatMoney(delta))} vs cheapest`}</span>
           ${winner ? '<span class="plan-badge">Winner</span>' : ""}
         </article>
       `;
@@ -409,7 +415,10 @@
   }
 
   function svgFrame(width, height, content) {
-    return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Generated energy chart">${content}</svg>`;
+    return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Generated energy chart">
+      <style>text{font-family:"IBM Plex Sans",system-ui,sans-serif}</style>
+      ${content}
+    </svg>`;
   }
 
   function drawMonthlyChart(monthly) {
@@ -435,15 +444,32 @@
       return `<line x1="${pad.left}" x2="${width - pad.right}" y1="${gy}" y2="${gy}" stroke="${colors.line}" stroke-width="1" />`;
     }).join("");
 
+    const lastX = x(monthly.length - 1);
+    const baseY = height - pad.bottom;
+    const gridArea = `M ${x(0)} ${baseY} L ${gridPoints} L ${lastX} ${baseY} Z`;
+    const solarArea = `M ${x(0)} ${baseY} L ${solarPoints} L ${lastX} ${baseY} Z`;
     return svgFrame(width, height, `
+      <defs>
+        <linearGradient id="gs-grid-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${colors.cyan}" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="${colors.cyan}" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="gs-solar-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${colors.phosphor}" stop-opacity="0.28"/>
+          <stop offset="100%" stop-color="${colors.phosphor}" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
       ${guides}
-      <polyline points="${gridPoints}" fill="none" stroke="${colors.blue}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-      <polyline points="${solarPoints}" fill="none" stroke="${colors.green}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-      ${monthly.map((item, index) => `<circle cx="${x(index)}" cy="${y(item.grid)}" r="5" fill="${colors.blue}" />`).join("")}
-      ${monthly.map((item, index) => `<circle cx="${x(index)}" cy="${y(item.solar)}" r="5" fill="${colors.green}" />`).join("")}
+      <path d="${gridArea}" fill="url(#gs-grid-fill)" />
+      <path d="${solarArea}" fill="url(#gs-solar-fill)" />
+      <polyline points="${gridPoints}" fill="none" stroke="${colors.cyan}" stroke-width="7" stroke-opacity="0.22" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="${gridPoints}" fill="none" stroke="${colors.cyan}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="${solarPoints}" fill="none" stroke="${colors.phosphor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      ${monthly.map((item, index) => `<circle cx="${x(index)}" cy="${y(item.grid)}" r="4.5" fill="${colors.cyan}" />`).join("")}
+      ${monthly.map((item, index) => `<circle cx="${x(index)}" cy="${y(item.solar)}" r="4.5" fill="${colors.phosphor}" />`).join("")}
       ${labels}
-      <text x="${pad.left}" y="18" font-size="13" fill="${colors.blue}" font-weight="700">Grid import</text>
-      <text x="${pad.left + 100}" y="18" font-size="13" fill="${colors.green}" font-weight="700">Solar export</text>
+      <text x="${pad.left}" y="18" font-size="13" fill="${colors.cyan}" font-weight="700">Grid import</text>
+      <text x="${pad.left + 110}" y="18" font-size="13" fill="${colors.phosphor}" font-weight="700">Solar export</text>
     `);
   }
 
@@ -465,7 +491,7 @@
       let offset = labelWidth;
       const rects = values.map((value, valueIndex) => {
         const widthValue = (value / maxTotal) * barWidth;
-        const rect = `<rect x="${offset}" y="${y}" width="${Math.max(widthValue, 0)}" height="20" fill="${palette[valueIndex]}" />`;
+        const rect = `<rect x="${offset}" y="${y}" width="${Math.max(widthValue, 0)}" height="20" rx="4" fill="${palette[valueIndex]}" />`;
         offset += widthValue;
         return rect;
       }).join("");
@@ -529,7 +555,7 @@
       const barHeight = (Math.abs(value) / maxValue) * (height - pad.top - pad.bottom);
       const y = height - pad.bottom - barHeight;
       return `
-        <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="4" fill="${colors.violet}" />
+        <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="7" fill="${colors.copper}" />
         <text x="${x + barWidth / 2}" y="${height - 22}" text-anchor="middle" font-size="12" fill="${colors.muted}">${escapeHtml(item.key)}</text>
       `;
     }).join("");
@@ -543,10 +569,13 @@
 
   function mixColor(t) {
     const clamp = Math.max(0, Math.min(1, t));
-    const from = [226, 232, 240];
-    const to = [239, 68, 68];
-    const channel = (index) => Math.round(from[index] + (to[index] - from[index]) * clamp);
-    return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
+    const day = document.body.classList.contains("theme-day");
+    const from = day ? [239, 228, 204] : [28, 34, 22];
+    const mid = [212, 160, 90];
+    const to = [227, 93, 42];
+    const mix = (a, b, u) => a.map((value, index) => Math.round(value + (b[index] - value) * u));
+    const rgb = clamp < 0.55 ? mix(from, mid, clamp / 0.55) : mix(mid, to, (clamp - 0.55) / 0.45);
+    return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
   }
 
   function drawHeatmap(heatmap) {
@@ -554,8 +583,17 @@
       return emptyChart("No heatmap data.");
     }
 
-    const cellW = 36;
-    const cellH = 28;
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const shortBucket = (bucket) => {
+      const text = String(bucket);
+      const match = text.match(/^(\d{4})-(\d{2})$/);
+      if (match) {
+        return monthNames[Number(match[2]) - 1] || text;
+      }
+      return text;
+    };
+    const cellW = heatmap.axis === "hour" ? 32 : 54;
+    const cellH = 30;
     const left = 52;
     const top = 36;
     const width = Math.max(760, left + heatmap.buckets.length * cellW + 24);
@@ -563,7 +601,7 @@
     const maxGrid = heatmap.maxGrid || heatmap.max_grid || 1;
 
     const header = heatmap.buckets.map((bucket, index) => (
-      `<text x="${left + index * cellW + cellW / 2}" y="20" text-anchor="middle" font-size="10" fill="${colors.muted}">${escapeHtml(String(bucket))}</text>`
+      `<text x="${left + index * cellW + cellW / 2}" y="20" text-anchor="middle" font-size="11" fill="${colors.muted}">${escapeHtml(shortBucket(bucket))}</text>`
     )).join("");
 
     const body = heatmap.weekdays.map((weekday, rowIndex) => {
@@ -571,7 +609,7 @@
       const cells = heatmap.buckets.map((bucket, colIndex) => {
         const cell = heatmap.cells.find((item) => item.weekday === weekday && item.bucket === bucket);
         const grid = cell ? cell.grid : 0;
-        const fill = grid <= 0 ? "rgba(148, 163, 184, 0.18)" : mixColor(grid / maxGrid);
+        const fill = grid <= 0 ? "rgba(163, 155, 136, 0.16)" : mixColor(grid / maxGrid);
         return `<rect x="${left + colIndex * cellW + 2}" y="${top + rowIndex * cellH + 2}" width="${cellW - 4}" height="${cellH - 4}" rx="4" fill="${fill}"><title>${escapeHtml(weekday)} ${escapeHtml(String(bucket))}: ${GS().formatNumber(grid)} kWh</title></rect>`;
       }).join("");
       return label + cells;
@@ -818,14 +856,20 @@
   }
 
   function applyTheme(theme) {
-    const isDark = theme === "dark";
-    document.body.classList.toggle("theme-dark", isDark);
-    const toggle = $("#theme-toggle");
-    if (toggle) {
-      toggle.setAttribute("aria-pressed", String(isDark));
-      toggle.textContent = isDark ? "Light mode" : "Dark mode";
-    }
+    const isDay = theme === "light";
+    document.body.classList.toggle("theme-day", isDay);
+    document.body.classList.toggle("theme-dark", !isDay);
+    document.querySelectorAll("[data-theme-toggle]").forEach((toggle) => {
+      toggle.setAttribute("aria-pressed", String(isDay));
+      toggle.textContent = isDay ? "Night grid" : "Daylight";
+    });
     localStorage.setItem("gridscope-theme", theme);
+    if (state.latestAnalysis) {
+      const heatmapChart = $("#heatmap-chart");
+      if (heatmapChart) {
+        heatmapChart.innerHTML = drawHeatmap(state.latestAnalysis.heatmap);
+      }
+    }
   }
 
   function setStatus(tone, message) {
@@ -847,6 +891,7 @@
     if (results) {
       results.hidden = false;
     }
+    document.body.classList.add("has-results");
     renderHero(analysis);
     updatePeakShift(analysis);
     updateSolarShift(analysis);
@@ -1009,14 +1054,28 @@
       return;
     }
 
-    applyTheme(localStorage.getItem("gridscope-theme") === "dark" ? "dark" : "light");
+    const savedTheme = localStorage.getItem("gridscope-theme");
+    applyTheme(savedTheme === "light" ? "light" : "dark");
 
-    const themeToggle = $("#theme-toggle");
-    if (themeToggle) {
-      themeToggle.addEventListener("click", () => {
-        const nextTheme = document.body.classList.contains("theme-dark") ? "light" : "dark";
+    document.querySelectorAll("[data-theme-toggle]").forEach((toggle) => {
+      toggle.addEventListener("click", () => {
+        const nextTheme = document.body.classList.contains("theme-day") ? "dark" : "light";
         applyTheme(nextTheme);
       });
+    });
+
+    const clock = document.getElementById("grid-clock");
+    if (clock) {
+      const tick = () => {
+        clock.textContent = new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false
+        });
+      };
+      tick();
+      window.setInterval(tick, 1000);
     }
 
     const exportButton = $("#export-analysis");
