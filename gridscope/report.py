@@ -151,6 +151,10 @@ def write_tables(analysis: Mapping[str, Any], tables_dir: Path) -> list[Path]:
                 "baseline_kwh": None
                 if item.get("baseline_kwh") is None
                 else round(float(item["baseline_kwh"]), 3),
+                "method": item.get("method"),
+                "z_score": None
+                if item.get("z_score") is None
+                else round(float(item["z_score"]), 2),
             }
         )
     anomaly_path = tables_dir / "py_anomalies.csv"
@@ -196,6 +200,36 @@ def write_tables(analysis: Mapping[str, Any], tables_dir: Path) -> list[Path]:
         plan_path.write_text(table_to_csv(plan_rows), encoding="utf-8")
         written.append(plan_path)
 
+    daily_rows = [
+        {
+            "day": item["day"],
+            "grid_kwh": round(float(item["grid"]), 3),
+            "solar_kwh": round(float(item["solar"]), 3),
+            "consumed_kwh": round(float(item["consumed"]), 3),
+        }
+        for item in analysis.get("daily") or []
+    ]
+    if daily_rows:
+        daily_path = tables_dir / "py_daily.csv"
+        daily_path.write_text(table_to_csv(daily_rows), encoding="utf-8")
+        written.append(daily_path)
+
+    battery = analysis.get("what_if_battery")
+    if battery:
+        battery_path = tables_dir / "py_battery.csv"
+        battery_path.write_text(
+            table_to_csv(
+                [
+                    {
+                        key: round(value, 3) if isinstance(value, float) else value
+                        for key, value in battery.items()
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        written.append(battery_path)
+
     return written
 
 
@@ -233,6 +267,12 @@ def write_html_report(
     plans = analysis.get("plans") or {}
     plan_rows = list(plans.get("plans") or [])
     cheapest = plans.get("cheapest") or "—"
+    switch_saving = float(plans.get("switch_saving") or 0)
+    battery = analysis.get("what_if_battery") or {}
+    payback = battery.get("payback_years")
+    payback_text = "Add --battery-cost" if payback is None else f"{float(payback):.1f} years"
+    source = analysis.get("source") or {}
+    source_text = "NEM12 interval file" if source.get("format") == "nem12" else "Column CSV"
 
     compare_html = ""
     if compare is not None:
@@ -276,7 +316,7 @@ def write_html_report(
 </header>
 <section class="hero-stage">
 <h1>The bill, from the engine.</h1>
-<p class="lede">Python snapshot plus the local studio: household filter, live tariff rebill, plan compare, weekday heatmap, and CSV export. Data stays in the browser after this page is written.</p>
+<p class="lede">Python snapshot plus the local studio: household filter, live tariff rebill, plan compare, battery what-if, daily trace, and CSV export. Data stays in the browser after this page is written.</p>
 </section>
 <main>
 {workspace}
@@ -296,6 +336,10 @@ def write_html_report(
 <div class="metric"><span>Tariff bill</span><strong>{_money(totals['tariff_bill'])}</strong></div>
 <div class="metric"><span>This month you could save</span><strong>{_money(savings)}</strong></div>
 <div class="metric"><span>Cheapest plan</span><strong>{html.escape(str(cheapest))}</strong></div>
+<div class="metric"><span>Switch saving</span><strong>{_money(switch_saving)}</strong></div>
+<div class="metric"><span>Battery ({_number(float(battery.get('capacity_kwh') or 0))} kWh) / yr</span><strong>{_money(battery.get('annual_saving_aud'))}</strong></div>
+<div class="metric"><span>Battery payback</span><strong>{html.escape(payback_text)}</strong></div>
+<div class="metric"><span>Source</span><strong>{html.escape(source_text)}</strong></div>
 </div>
 <ul class="insight-list">
 <li>Highest grid import month: {html.escape(highest['key']) if highest else "—"} at {_number(highest['grid']) if highest else "0"} kWh.</li>
@@ -334,7 +378,8 @@ def write_html_report(
     ("grid", "Grid import"),
     ("pct_of_average", "% of average"),
     ("anomaly_type", "Type"),
-    ("baseline", "Baseline"),
+    ("method", "Method"),
+    ("z_score", "z"),
     ("baseline_kwh", "Baseline kWh"),
 ])}
 <h3>Savings opportunities</h3>

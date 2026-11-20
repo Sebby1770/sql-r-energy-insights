@@ -27,7 +27,7 @@ from gridscope.analysis import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-SAMPLE = ROOT / "data" / "sample_energy_upload.csv"
+SAMPLE = ROOT / "tests" / "fixtures" / "legacy_sample.csv"
 
 
 def test_parse_sample_csv():
@@ -121,7 +121,10 @@ def test_anomaly_flags_high_usage_day():
     assert all(item["anomaly_type"] != "normal" for item in anomalies)
     spike = next(item for item in anomalies if item["day"] == "2025-01-06")
     assert spike["baseline"] == "household"
-    assert spike["baseline_kwh"] == pytest.approx((10 * 5 + 30) / 6)
+    # Median, not mean: the spike itself no longer drags its own baseline up.
+    assert spike["baseline_kwh"] == pytest.approx(10)
+    assert spike["method"] == "ratio"
+    assert spike["z_score"] is None
 
 
 def test_anomaly_flags_low_dip():

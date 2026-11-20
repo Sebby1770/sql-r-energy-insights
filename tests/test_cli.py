@@ -6,7 +6,7 @@ import pytest
 from gridscope.cli import main
 
 ROOT = Path(__file__).resolve().parents[1]
-SAMPLE = ROOT / "data" / "sample_energy_upload.csv"
+SAMPLE = ROOT / "tests" / "fixtures" / "legacy_sample.csv"
 
 
 def test_cli_writes_html_and_tables(tmp_path, capsys):

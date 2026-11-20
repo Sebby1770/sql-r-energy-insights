@@ -4,7 +4,14 @@
  *   Untiered split: peak 0.44 / shoulder 0.34 / off-peak 0.22 of supplied total
  *   consumed = peak + shoulder + off-peak
  *   grid = supplied grid else max(0, consumed - solar)
- *   anomaly: household mean if that household has >= 4 rows, else global mean
+ *   NEM12 interval files: hourly rows, import tiered by the TOU windows below
+ *     (tier_source "interval"), export as solar
+ *   anomalies on household-day totals; baseline window = that household's days
+ *     within +/- 15 days (whole history when < 7): MAD > 0 -> modified z
+ *     0.6745 * (x - median) / MAD, flag |z| >= 3.5; else ratio 1.5x / 0.5x to the
+ *     window median; households with < 4 days use the median of every household-day
+ *   battery: per household, time order; charge from export to capacity, deliver
+ *     soc * efficiency into import (peak, shoulder, off-peak)
  *   energy = peak*peak + shoulder*shoulder + offpeak*offpeak
  *   export = solar * export_credit
  *   ex_gst = energy + daily_supply * distinct_days - export
@@ -17,16 +24,17 @@
  *   totals peak_share / solar_share = 100 * peak|solar / consumed (else 0)
  *   totals cost_per_kwh = tariff_bill / consumed (else null)
  *   weekend_split: Sat/Sun vs rest; unique days, consumed kWh, GST-inclusive bills
- *   data_quality: duplicate (household, day) keys; negative energy; zero grid
+ *   data_quality: duplicate (household, day, hour) keys; negative energy; zero grid;
+ *     estimated/substituted and missing NEM12 intervals
  *   shift_peak: copy rows, move fraction * peak into off-peak; consumed unchanged
  *   what_if_peak_shift: baseline vs shifted GST-inclusive bills and saving_aud
  *   what_if_solar_self: fraction * solar * max(0, shoulder - export) * (1+gst); does not mutate rows
- *   dedupe_rows: sum energy (+ bill when both present) for duplicate (household, day) keys
+ *   dedupe_rows: sum energy (+ bill when both present) for duplicate (household, day, hour) keys
  *   groups kwh_per_household = grid / households (else null)
  *   compare monthly_delta: shared month keys, delta_kwh = right.grid - left.grid
  */
 (function (root) {
-  const VERSION = "0.8.0";
+  const VERSION = "0.9.0";
 
   const DEFAULT_TARIFF = {
     peak: 0.4,
@@ -46,6 +54,16 @@
   const TIER_SPLIT = { peak: 0.44, shoulder: 0.34, offpeak: 0.22 };
   const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const HOUSEHOLD_BASELINE_MIN_ROWS = 4;
+  const MAD_MIN_DAYS = 7;
+  const ANOMALY_WINDOW_DAYS = 15;
+  const MAD_Z_THRESHOLD = 3.5;
+  const MAD_SCALE = 0.6745;
+  const PLAN_SWITCH_HIGH = 0.1;
+  const PLAN_SWITCH_MEDIUM = 0.03;
+  const DEFAULT_BATTERY = { capacity_kwh: 10, efficiency: 0.9 };
+  const NEM12_UOM = { KWH: 1, WH: 0.001, MWH: 1000 };
+  const NEM12_ESTIMATED = new Set(["S", "F", "E"]);
+  const NEM12_INTERVALS = new Set([1, 5, 10, 15, 30, 60]);
 
   function formatNumber(value, digits = 1) {
     if (!Number.isFinite(value)) {
@@ -142,6 +160,28 @@
     }
     const parsed = Number(cleaned);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function parseHourValue(value) {
+    const raw = String(value === null || value === undefined ? "" : value).trim().toLowerCase();
+    if (raw === "") {
+      return null;
+    }
+    const match = raw.match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(am|pm)?$/);
+    if (match) {
+      let hour = Number(match[1]);
+      if (match[3] === "pm" && hour < 12) {
+        hour += 12;
+      } else if (match[3] === "am" && hour === 12) {
+        hour = 0;
+      }
+      return hour >= 0 && hour <= 23 ? hour : null;
+    }
+    const number = optionalNumber(raw);
+    if (number === null) {
+      return null;
+    }
+    return Math.trunc(Math.max(0, Math.min(23, number)));
   }
 
   function pad2(value) {
@@ -290,7 +330,8 @@
       grid: pickColumn(headers, ["grid_import_kwh", "import_kwh", "grid_kwh", "usage_kwh", "consumption_kwh"]),
       total: pickColumn(headers, ["total_kwh", "consumed_kwh", "energy_kwh", "kwh"]),
       bill: pickColumn(headers, ["estimated_bill", "bill", "cost", "amount", "charge"]),
-      hour: pickColumn(headers, ["hour", "interval_hour", "tod_hour", "hour_of_day"])
+      hour: pickColumn(headers, ["hour", "interval_hour", "tod_hour", "hour_of_day"]),
+      time: pickColumn(headers, ["time", "interval_time", "start_time", "read_time", "interval_start"])
     };
 
     if (col.day === -1) {
@@ -327,10 +368,12 @@
       const grid = col.grid !== -1 ? toNumber(raw[col.grid]) : Math.max(0, consumed - solar);
       const bill = col.bill !== -1 ? optionalNumber(raw[col.bill]) : null;
       let hour = parsedDate.hour;
-      if (col.hour !== -1) {
-        const hourValue = optionalNumber(raw[col.hour]);
-        if (hourValue !== null) {
-          hour = Math.max(0, Math.min(23, Math.round(hourValue)));
+      for (const hourCol of [col.time, col.hour]) {
+        if (hourCol !== -1) {
+          const hourValue = parseHourValue(raw[hourCol]);
+          if (hourValue !== null) {
+            hour = hourValue;
+          }
         }
       }
 
@@ -361,8 +404,251 @@
     return rows;
   }
 
+  function looksLikeNem12(text) {
+    const lines = String(text || "").replace(/\ufeff/g, "").split(/\r?\n/);
+    for (const line of lines) {
+      const stripped = line.trim();
+      if (!stripped) {
+        continue;
+      }
+      const cells = stripped.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "").toUpperCase());
+      if (cells[0] === "100") {
+        return cells.length > 1 && cells[1] === "NEM12";
+      }
+      return cells[0] === "200";
+    }
+    return false;
+  }
+
+  function nem12Date(raw) {
+    const text = String(raw || "").trim();
+    if (!/^\d{8}$/.test(text)) {
+      throw new Error(`NEM12 300 record has an unreadable date: '${raw}'.`);
+    }
+    const date = makeDate(Number(text.slice(0, 4)), Number(text.slice(4, 6)), Number(text.slice(6, 8)));
+    if (!date) {
+      throw new Error(`NEM12 300 record has an invalid date: '${raw}'.`);
+    }
+    return date;
+  }
+
+  function nem12Value(raw) {
+    const text = String(raw === undefined ? "" : raw).trim();
+    if (text === "") {
+      return null;
+    }
+    const value = Number(text);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function parseNem12Details(text) {
+    const records = parseCsv(text);
+    if (!records.length) {
+      throw new Error("The NEM12 file is empty.");
+    }
+    let channel = null;
+    const buckets = new Map();
+    const nmis = [];
+    const channels = [];
+    const intervalMinutes = new Set();
+    const skipped = new Set();
+    let daysSeen = 0;
+    let pending = null;
+
+    const bucketFor = (nmi, date, hour) => {
+      const key = JSON.stringify([nmi, isoDay(date), hour]);
+      if (!buckets.has(key)) {
+        buckets.set(key, { nmi, date, hour, import: 0, export: 0, estimated: 0, missing: 0 });
+      }
+      return buckets.get(key);
+    };
+    const addDay = (values, flags, date, current) => {
+      values.forEach((value, index) => {
+        const hour = Math.floor((index * current.interval) / 60);
+        const bucket = bucketFor(current.nmi, date, hour);
+        if (value === null || flags[index] === "N") {
+          bucket.missing += 1;
+          return;
+        }
+        bucket[current.kind] += value * current.scale;
+        if (NEM12_ESTIMATED.has(flags[index])) {
+          bucket.estimated += 1;
+        }
+      });
+    };
+    const flushPending = () => {
+      if (pending) {
+        addDay(pending.values, pending.flags, pending.date, pending.channel);
+        pending = null;
+      }
+    };
+
+    for (const record of records) {
+      const kind = String(record[0] || "").trim();
+      if (kind !== "400") {
+        flushPending();
+      }
+      if (kind === "100") {
+        const version = String(record[1] || "").trim().toUpperCase();
+        if (version !== "NEM12") {
+          throw new Error(`Only NEM12 interval files are supported (this header says ${version || "nothing"}).`);
+        }
+        continue;
+      }
+      if (kind === "200") {
+        if (record.length < 9) {
+          throw new Error("NEM12 200 record is missing fields.");
+        }
+        const nmi = String(record[1]).trim();
+        const suffix = String(record[4]).trim().toUpperCase();
+        const uom = String(record[7]).trim().toUpperCase();
+        const intervalText = String(record[8]).trim();
+        const interval = /^\d+$/.test(intervalText) ? Number(intervalText) : NaN;
+        if (!Number.isFinite(interval)) {
+          throw new Error(`NEM12 200 record has an unreadable interval length: '${record[8]}'.`);
+        }
+        if (!NEM12_INTERVALS.has(interval)) {
+          throw new Error(`NEM12 interval length ${interval} is not supported.`);
+        }
+        const first = suffix.slice(0, 1);
+        const channelKind = first === "E" ? "import" : first === "B" ? "export" : null;
+        const scale = Object.prototype.hasOwnProperty.call(NEM12_UOM, uom) ? NEM12_UOM[uom] : null;
+        if (!channelKind || scale === null) {
+          skipped.add(`${suffix} (${uom})`);
+          channel = { skip: true };
+          continue;
+        }
+        channel = { skip: false, nmi, suffix, kind: channelKind, scale, interval };
+        intervalMinutes.add(interval);
+        if (!nmis.includes(nmi)) {
+          nmis.push(nmi);
+        }
+        const label = `${nmi}:${suffix}`;
+        if (!channels.includes(label)) {
+          channels.push(label);
+        }
+        continue;
+      }
+      if (kind === "300") {
+        if (!channel) {
+          throw new Error("NEM12 300 record appears before any 200 record.");
+        }
+        if (channel.skip) {
+          continue;
+        }
+        const count = Math.floor(1440 / channel.interval);
+        if (record.length < 2 + count) {
+          throw new Error(`NEM12 300 record has ${Math.max(0, record.length - 2)} values; expected ${count} for ${channel.interval}-minute intervals.`);
+        }
+        const date = nem12Date(record[1]);
+        const values = record.slice(2, 2 + count).map(nem12Value);
+        let flag = record.length > 2 + count ? String(record[2 + count]).trim().toUpperCase().slice(0, 1) : "";
+        flag = flag || "A";
+        daysSeen += 1;
+        if (flag === "V") {
+          pending = { channel, date, values, flags: new Array(count).fill("A") };
+          continue;
+        }
+        addDay(values, new Array(count).fill(flag), date, channel);
+        continue;
+      }
+      if (kind === "400") {
+        if (!pending || record.length < 4) {
+          continue;
+        }
+        const startText = String(record[1]).trim();
+        const endText = String(record[2]).trim();
+        if (!/^-?\d+$/.test(startText) || !/^-?\d+$/.test(endText)) {
+          continue;
+        }
+        const start = Number(startText);
+        const end = Number(endText);
+        const flag = String(record[3]).trim().toUpperCase().slice(0, 1) || "A";
+        for (let position = Math.max(1, start); position <= Math.min(pending.flags.length, end); position += 1) {
+          pending.flags[position - 1] = flag;
+        }
+      }
+    }
+    flushPending();
+
+    if (!buckets.size) {
+      throw new Error("No kWh import or export channels were found in this NEM12 file.");
+    }
+
+    const keys = Array.from(buckets.keys()).sort((a, b) => {
+      const left = JSON.parse(a);
+      const right = JSON.parse(b);
+      for (let i = 0; i < 3; i += 1) {
+        if (left[i] < right[i]) {
+          return -1;
+        }
+        if (left[i] > right[i]) {
+          return 1;
+        }
+      }
+      return 0;
+    });
+    const rows = keys.map((key) => {
+      const bucket = buckets.get(key);
+      const weekday = weekdayName(bucket.date);
+      const grid = bucket.import;
+      const tier = touBucket(weekday, bucket.hour);
+      return {
+        date: bucket.date,
+        day: isoDay(bucket.date),
+        month: monthKey(bucket.date),
+        weekday,
+        hour: bucket.hour,
+        household: bucket.nmi,
+        neighbourhood: "Ungrouped",
+        peak: tier === "peak" ? grid : 0,
+        shoulder: tier === "shoulder" ? grid : 0,
+        offpeak: tier === "offpeak" ? grid : 0,
+        solar: bucket.export,
+        grid,
+        bill: null,
+        consumed: grid,
+        tier_source: "interval",
+        tierSource: "interval",
+        estimated_intervals: bucket.estimated,
+        missing_intervals: bucket.missing
+      };
+    });
+    const meta = {
+      format: "nem12",
+      nmis,
+      channels,
+      interval_minutes: intervalMinutes.size ? Math.min(...intervalMinutes) : null,
+      skipped_channels: Array.from(skipped).sort(),
+      interval_days: daysSeen
+    };
+    return { rows, meta };
+  }
+
+  function parseNem12(text) {
+    return parseNem12Details(text).rows;
+  }
+
+  function detectFormat(text) {
+    return looksLikeNem12(text) ? "nem12" : "csv";
+  }
+
+  function parseEnergyTextDetails(text, options) {
+    if (looksLikeNem12(text)) {
+      return parseNem12Details(text);
+    }
+    return {
+      rows: parseEnergyCsv(text, options),
+      meta: { format: "csv", nmis: [], channels: [], interval_minutes: null, skipped_channels: [], interval_days: 0 }
+    };
+  }
+
+  function parseEnergyText(text, options) {
+    return parseEnergyTextDetails(text, options).rows;
+  }
+
   function normaliseRows(text, options) {
-    return parseEnergyCsv(text, options);
+    return parseEnergyText(text, options);
   }
 
   function sum(rows, key) {
@@ -392,7 +678,7 @@
       return materialised;
     }
     return materialised.map((row) => {
-      if (row.tier_source === "csv" || !rowHasHour(row)) {
+      if (row.tier_source === "csv" || row.tier_source === "interval" || !rowHasHour(row)) {
         return row;
       }
       const hour = Number(row.hour);
@@ -550,66 +836,177 @@
     }));
   }
 
+  function median(values) {
+    const ordered = Array.from(values, Number).sort((a, b) => a - b);
+    const count = ordered.length;
+    if (!count) {
+      return null;
+    }
+    const middle = Math.floor(count / 2);
+    if (count % 2) {
+      return ordered[middle];
+    }
+    return (ordered[middle - 1] + ordered[middle]) / 2;
+  }
+
+  function compareText(a, b) {
+    if (a < b) {
+      return -1;
+    }
+    return a > b ? 1 : 0;
+  }
+
+  function dailyTotals(rows) {
+    const totals = new Map();
+    for (const row of rows) {
+      const household = String(row.household || "Unknown");
+      const day = String(row.day || "");
+      const key = JSON.stringify([household, day]);
+      if (!totals.has(key)) {
+        totals.set(key, {
+          day,
+          household,
+          neighbourhood: row.neighbourhood || "Ungrouped",
+          grid: 0,
+          solar: 0,
+          consumed: 0,
+          bill: null
+        });
+      }
+      const item = totals.get(key);
+      item.grid += Number(row.grid) || 0;
+      item.solar += Number(row.solar) || 0;
+      item.consumed += Number(row.consumed) || 0;
+      if (row.bill !== null && row.bill !== undefined) {
+        item.bill = (item.bill || 0) + Number(row.bill);
+      }
+    }
+    return Array.from(totals.values()).sort((a, b) => compareText(a.household, b.household) || compareText(a.day, b.day));
+  }
+
+  function dailySeries(rows) {
+    const byDay = new Map();
+    for (const item of dailyTotals(rows)) {
+      if (!byDay.has(item.day)) {
+        byDay.set(item.day, { day: item.day, grid: 0, solar: 0, consumed: 0 });
+      }
+      const target = byDay.get(item.day);
+      target.grid += item.grid;
+      target.solar += item.solar;
+      target.consumed += item.consumed;
+    }
+    return Array.from(byDay.keys()).sort(compareText).map((day) => byDay.get(day));
+  }
+
+  function dayOrdinal(iso) {
+    const [year, month, day] = String(iso).split("-").map(Number);
+    return Math.round(Date.UTC(year, month - 1, day) / 86400000);
+  }
+
+  function ratioType(value, baseline) {
+    if (baseline <= 0) {
+      return null;
+    }
+    if (value >= baseline * 1.5) {
+      return "high_spike";
+    }
+    if (value <= baseline * 0.5) {
+      return "low_dip";
+    }
+    return null;
+  }
+
   function getAnomalies(rows) {
-    if (rows.length === 0) {
+    const days = dailyTotals(rows);
+    if (!days.length) {
       return [];
     }
-
-    const globalMean = sum(rows, "grid") / rows.length;
+    const globalMedian = median(days.map((item) => item.grid)) || 0;
     const grouped = new Map();
-    for (const row of rows) {
-      const household = row.household || "Unknown";
-      if (!grouped.has(household)) {
-        grouped.set(household, []);
+    for (const item of days) {
+      if (!grouped.has(item.household)) {
+        grouped.set(item.household, []);
       }
-      grouped.get(household).push(row);
+      grouped.get(item.household).push(item);
     }
-    const householdMeans = new Map();
-    for (const [household, householdRows] of grouped.entries()) {
-      if (householdRows.length >= HOUSEHOLD_BASELINE_MIN_ROWS) {
-        householdMeans.set(household, sum(householdRows, "grid") / householdRows.length);
-      }
-    }
-
-    return rows
-      .map((row) => {
-        const household = row.household || "Unknown";
-        const baseline = householdMeans.has(household) ? "household" : "global";
-        const mean = householdMeans.has(household) ? householdMeans.get(household) : globalMean;
-        const pct = mean > 0 ? (row.grid / mean) * 100 : 0;
-        let anomalyType = "normal";
-        if (row.grid >= mean * 1.5) {
-          anomalyType = "high_spike";
-        } else if (row.grid <= mean * 0.5) {
-          anomalyType = "low_dip";
+    const flagged = [];
+    for (const [household, householdDays] of grouped.entries()) {
+      const values = householdDays.map((item) => item.grid);
+      const ordinals = householdDays.map((item) => dayOrdinal(item.day));
+      const count = values.length;
+      householdDays.forEach((item, position) => {
+        const grid = item.grid;
+        let window = values.filter((_, other) => Math.abs(ordinals[other] - ordinals[position]) <= ANOMALY_WINDOW_DAYS);
+        if (window.length < MAD_MIN_DAYS) {
+          window = values;
         }
-        return {
-          day: row.day,
-          neighbourhood: row.neighbourhood,
-          household: row.household,
-          grid: row.grid,
-          consumed: row.consumed,
-          bill: row.bill,
+        const windowMedian = median(window) || 0;
+        let mad = null;
+        if (window.length >= MAD_MIN_DAYS) {
+          mad = median(window.map((value) => Math.abs(value - windowMedian)));
+        }
+        let method;
+        let baseline;
+        let baselineKwh;
+        let zScore = null;
+        let anomalyType;
+        if (count >= HOUSEHOLD_BASELINE_MIN_ROWS && mad !== null && mad > 0) {
+          method = "mad";
+          baseline = "household";
+          baselineKwh = windowMedian;
+          zScore = (MAD_SCALE * (grid - windowMedian)) / mad;
+          if (zScore >= MAD_Z_THRESHOLD) {
+            anomalyType = "high_spike";
+          } else if (zScore <= -MAD_Z_THRESHOLD) {
+            anomalyType = "low_dip";
+          } else {
+            return;
+          }
+        } else {
+          method = "ratio";
+          if (count >= HOUSEHOLD_BASELINE_MIN_ROWS) {
+            baseline = "household";
+            baselineKwh = windowMedian;
+          } else {
+            baseline = "global";
+            baselineKwh = globalMedian;
+          }
+          anomalyType = ratioType(grid, baselineKwh);
+          if (!anomalyType) {
+            return;
+          }
+        }
+        const pct = baselineKwh > 0 ? (grid / baselineKwh) * 100 : 0;
+        flagged.push({
+          day: item.day,
+          neighbourhood: item.neighbourhood,
+          household,
+          grid,
+          consumed: item.consumed,
+          bill: item.bill,
           pctOfAverage: pct,
           pct_of_average: pct,
           anomalyType,
           anomaly_type: anomalyType,
           baseline,
-          baselineKwh: mean,
-          baseline_kwh: mean
-        };
-      })
-      .filter((row) => row.anomalyType !== "normal")
-      .sort((a, b) => {
-        const delta = Math.abs(b.grid - b.baseline_kwh) - Math.abs(a.grid - a.baseline_kwh);
-        if (delta !== 0) {
-          return delta;
-        }
-        return String(a.day).localeCompare(String(b.day));
+          baselineKwh,
+          baseline_kwh: baselineKwh,
+          method,
+          z_score: zScore,
+          zScore
+        });
       });
+    }
+    return flagged.sort((a, b) => {
+      const delta = Math.abs(b.grid - b.baseline_kwh) - Math.abs(a.grid - a.baseline_kwh);
+      if (delta !== 0) {
+        return delta;
+      }
+      return compareText(String(a.day), String(b.day)) || compareText(String(a.household), String(b.household));
+    });
   }
 
-  function getRecommendations(totals, tariff) {
+  function getRecommendations(totals, tariff, plans) {
     const recommendations = [];
     const rates = coerceTariff(tariff);
     const peakKwh = Number(totals.peak) || 0;
@@ -644,6 +1041,20 @@
       });
     }
 
+    const switchSaving = Number((plans || {}).switch_saving ?? (plans || {}).switchSaving) || 0;
+    const currentBill = Number((plans || {}).current_bill ?? (plans || {}).currentBill) || 0;
+    if (switchSaving > 0.005 && currentBill > 0) {
+      const share = switchSaving / currentBill;
+      const cheapest = String((plans || {}).cheapest || "the cheapest plan");
+      recommendations.push({
+        opportunity: `Switch to ${cheapest}`,
+        detail: `On this usage ${cheapest} bills ${formatMoney(switchSaving)} less than your current tariff (${formatNumber(share * 100)}%).`,
+        impact: share >= PLAN_SWITCH_HIGH ? "high" : share >= PLAN_SWITCH_MEDIUM ? "medium" : "low",
+        saving_aud: switchSaving,
+        savingAud: switchSaving
+      });
+    }
+
     if (avgDailyBill !== null) {
       const projected = avgDailyBill * 30;
       recommendations.push({
@@ -660,7 +1071,7 @@
       if (delta !== 0) {
         return delta;
       }
-      return a.opportunity.localeCompare(b.opportunity);
+      return compareText(a.opportunity, b.opportunity);
     });
     return recommendations;
   }
@@ -695,19 +1106,23 @@
       return row.hour === null || row.hour === undefined ? null : pad2(row.hour);
     };
 
+    const sums = new Map();
+    for (const row of rows) {
+      const bucket = bucketOf(row);
+      if (bucket === null || bucket === undefined || !WEEKDAYS.includes(row.weekday)) {
+        continue;
+      }
+      const key = `${row.weekday}|${bucket}`;
+      const cell = sums.get(key) || [0, 0];
+      cell[0] += Number(row.grid) || 0;
+      cell[1] += 1;
+      sums.set(key, cell);
+    }
     const cells = [];
     let maxGrid = 0;
     for (const weekday of WEEKDAYS) {
       for (const bucket of buckets) {
-        let grid = 0;
-        let records = 0;
-        for (const row of rows) {
-          if (row.weekday !== weekday || bucketOf(row) !== bucket) {
-            continue;
-          }
-          grid += row.grid;
-          records += 1;
-        }
+        const [grid, records] = sums.get(`${weekday}|${bucket}`) || [0, 0];
         maxGrid = Math.max(maxGrid, grid);
         cells.push({ weekday, bucket, grid, records });
       }
@@ -724,6 +1139,7 @@
     const solar = sum(rows, "solar");
     const peakShare = consumed ? (100 * peak) / consumed : 0;
     const solarShare = consumed ? (100 * solar) / consumed : 0;
+    const days = rows.map((row) => row.day).filter(Boolean).sort(compareText);
     return {
       records: rows.length,
       days: new Set(rows.map((row) => row.day)).size,
@@ -748,7 +1164,9 @@
       supplyCharge: components.supply_charge,
       supply_charge: components.supply_charge,
       gstAmount: components.gst_amount,
-      gst_amount: components.gst_amount
+      gst_amount: components.gst_amount,
+      first_day: days.length ? days[0] : null,
+      last_day: days.length ? days[days.length - 1] : null
     };
   }
 
@@ -785,10 +1203,15 @@
     };
   }
 
+  function readingKey(row) {
+    const hour = rowHasHour(row) ? String(Math.trunc(Number(row.hour))) : "";
+    return JSON.stringify([String(row.household || "Unknown"), String(row.day || ""), hour]);
+  }
+
   function dataQuality(rows) {
     const keyCounts = new Map();
     for (const row of rows) {
-      const key = JSON.stringify([row.household || "Unknown", row.day || ""]);
+      const key = readingKey(row);
       keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
     }
     let duplicateKeys = 0;
@@ -799,7 +1222,11 @@
     }
     let negativeEnergy = 0;
     let zeroGrid = 0;
+    let estimatedIntervals = 0;
+    let missingIntervals = 0;
     for (const row of rows) {
+      estimatedIntervals += Number(row.estimated_intervals) || 0;
+      missingIntervals += Number(row.missing_intervals) || 0;
       const values = [row.peak, row.shoulder, row.offpeak, row.grid, row.solar];
       if (values.some((value) => Number(value) < 0)) {
         negativeEnergy += 1;
@@ -814,7 +1241,11 @@
       negative_energy: negativeEnergy,
       negativeEnergy,
       zero_grid: zeroGrid,
-      zeroGrid
+      zeroGrid,
+      estimated_intervals: estimatedIntervals,
+      estimatedIntervals,
+      missing_intervals: missingIntervals,
+      missingIntervals
     };
   }
 
@@ -878,11 +1309,102 @@
     };
   }
 
+  function positive(value) {
+    const number = Number(value) || 0;
+    return number > 0 ? number : 0;
+  }
+
+  function simulateBattery(rows, capacityKwh, efficiency) {
+    const capacity = Math.max(0, Number(capacityKwh === undefined ? DEFAULT_BATTERY.capacity_kwh : capacityKwh) || 0);
+    const eff = clampFraction(efficiency === undefined ? DEFAULT_BATTERY.efficiency : efficiency);
+    const adjusted = rows.map((row) => ({ ...row }));
+    const order = adjusted.map((_, index) => index).sort((a, b) => {
+      const left = adjusted[a];
+      const right = adjusted[b];
+      return compareText(String(left.household || "Unknown"), String(right.household || "Unknown"))
+        || compareText(String(left.day || ""), String(right.day || ""))
+        || (rowHasHour(left) ? Number(left.hour) : -1) - (rowHasHour(right) ? Number(right.hour) : -1)
+        || a - b;
+    });
+    const stateOfCharge = new Map();
+    let chargedTotal = 0;
+    let deliveredTotal = 0;
+    for (const index of order) {
+      const row = adjusted[index];
+      const household = String(row.household || "Unknown");
+      let soc = stateOfCharge.get(household) || 0;
+      const exported = positive(row.solar);
+      const charge = Math.min(exported, Math.max(0, capacity - soc));
+      if (charge > 0) {
+        soc += charge;
+        row.solar = (Number(row.solar) || 0) - charge;
+        chargedTotal += charge;
+      }
+      if (eff > 0 && soc > 0) {
+        const tiers = { peak: positive(row.peak), shoulder: positive(row.shoulder), offpeak: positive(row.offpeak) };
+        const demand = Math.min(positive(row.grid), tiers.peak + tiers.shoulder + tiers.offpeak);
+        const deliver = Math.min(soc * eff, demand);
+        if (deliver > 0) {
+          let remaining = deliver;
+          for (const name of ["peak", "shoulder", "offpeak"]) {
+            const take = Math.min(remaining, tiers[name]);
+            if (take > 0) {
+              row[name] = (Number(row[name]) || 0) - take;
+              remaining -= take;
+            }
+          }
+          row.grid = (Number(row.grid) || 0) - deliver;
+          soc = Math.max(0, soc - deliver / eff);
+          deliveredTotal += deliver;
+        }
+      }
+      stateOfCharge.set(household, soc);
+    }
+    return { rows: adjusted, charged_kwh: chargedTotal, delivered_kwh: deliveredTotal };
+  }
+
+  function whatIfBattery(rows, tariff, capacityKwh, efficiency, costAud) {
+    const rates = coerceTariff(tariff);
+    const capacity = Math.max(0, Number(capacityKwh === undefined ? DEFAULT_BATTERY.capacity_kwh : capacityKwh) || 0);
+    const eff = clampFraction(efficiency === undefined ? DEFAULT_BATTERY.efficiency : efficiency);
+    const sim = simulateBattery(rows, capacity, eff);
+    const baselineBill = estimateBill(rows, rates);
+    const batteryBill = estimateBill(sim.rows, rates);
+    const saving = baselineBill - batteryBill;
+    const days = new Set(rows.map((row) => row.day)).size;
+    const batteries = new Set(rows.map((row) => String(row.household || "Unknown"))).size;
+    const annualSaving = days ? (saving * 365) / days : 0;
+    const costNumber = costAud === null || costAud === undefined || costAud === "" ? null : Number(costAud);
+    const cost = costNumber === null || !Number.isFinite(costNumber) ? null : Math.max(0, costNumber);
+    const totalCost = cost === null ? null : cost * batteries;
+    const payback = totalCost !== null && totalCost > 0 && annualSaving > 0 ? totalCost / annualSaving : null;
+    const cycles = capacity > 0 && batteries ? sim.charged_kwh / (capacity * batteries) : 0;
+    return {
+      capacity_kwh: capacity,
+      efficiency: eff,
+      days,
+      batteries,
+      charged_kwh: sim.charged_kwh,
+      delivered_kwh: sim.delivered_kwh,
+      cycles,
+      baseline_bill: baselineBill,
+      battery_bill: batteryBill,
+      saving_aud: saving,
+      savingAud: saving,
+      annual_saving_aud: annualSaving,
+      annualSavingAud: annualSaving,
+      cost_aud: cost,
+      total_cost_aud: totalCost,
+      payback_years: payback,
+      paybackYears: payback
+    };
+  }
+
   function dedupeRows(rows) {
     const grouped = new Map();
     const order = [];
     for (const row of rows) {
-      const key = JSON.stringify([row.household || "Unknown", row.day || ""]);
+      const key = readingKey(row);
       if (!grouped.has(key)) {
         grouped.set(key, { ...row });
         order.push(key);
@@ -899,8 +1421,10 @@
           target.bill = row.bill;
         }
       }
-      if ((target.hour === null || target.hour === undefined) && row.hour !== null && row.hour !== undefined) {
-        target.hour = row.hour;
+      for (const field of ["estimated_intervals", "missing_intervals"]) {
+        if ((row[field] !== null && row[field] !== undefined) || (target[field] !== null && target[field] !== undefined)) {
+          target[field] = (Number(target[field]) || 0) + (Number(row[field]) || 0);
+        }
       }
     }
     return order.map((key) => grouped.get(key));
@@ -919,11 +1443,15 @@
     return result;
   }
 
-  function comparePlans(rows, plans, gst) {
-    const gstRate = gst === null || gst === undefined ? DEFAULT_TARIFF.gst : Number(gst);
-    const source = plans && plans.length ? plans : DEFAULT_PLANS;
+  function comparePlans(rows, plans, gst, current) {
+    let gstRate = gst === null || gst === undefined ? DEFAULT_TARIFF.gst : Number(gst);
+    if (!Number.isFinite(gstRate) || gstRate < 0) {
+      gstRate = 0;
+    }
+    const source = plans === null || plans === undefined ? DEFAULT_PLANS : plans;
+    const currentBill = current ? estimateBill(rows, { ...current, gst: gstRate }) : null;
     const scored = source.map((plan) => {
-      const rates = coerceTariff({ ...plan, gst: gstRate < 0 ? 0 : gstRate });
+      const rates = coerceTariff({ ...plan, gst: gstRate });
       const bill = estimateBill(rows, rates);
       return {
         name: plan.name || "Plan",
@@ -935,29 +1463,41 @@
       };
     });
     if (!scored.length) {
-      return { plans: [], cheapest: null };
+      return { plans: [], cheapest: null, current_bill: currentBill, switch_saving: 0, switchSaving: 0 };
     }
     const cheapestBill = Math.min(...scored.map((item) => item.bill));
-    const cheapest = scored.find((item) => item.bill === cheapestBill).name;
-    for (const item of scored) {
+    const cheapestIndex = scored.findIndex((item) => item.bill === cheapestBill);
+    scored.forEach((item, index) => {
       item.delta_vs_cheapest = item.bill - cheapestBill;
       item.deltaVsCheapest = item.delta_vs_cheapest;
-      item.winner = item.name === cheapest;
-    }
-    return { plans: scored, cheapest };
+      item.winner = index === cheapestIndex;
+    });
+    const switchSaving = currentBill === null ? 0 : Math.max(0, currentBill - cheapestBill);
+    return {
+      plans: scored,
+      cheapest: scored[cheapestIndex].name,
+      current_bill: currentBill,
+      currentBill,
+      switch_saving: switchSaving,
+      switchSaving
+    };
   }
 
-  function getAnalysis(rows, tariff, household, tou, dedupe) {
+  function getAnalysis(rows, tariff, household, tou, dedupe, options) {
+    const extra = options || {};
     const rates = coerceTariff(tariff);
     let filtered = filterHousehold(rows, household);
     let touApplied = false;
     let touNote = "";
     if (tou) {
       const hasHour = filtered.some(rowHasHour);
-      const eligible = filtered.filter((row) => row.tier_source !== "csv" && rowHasHour(row)).length;
+      const eligible = filtered.filter((row) => row.tier_source !== "csv" && row.tier_source !== "interval" && rowHasHour(row)).length;
+      const intervalRows = filtered.some((row) => row.tier_source === "interval");
       filtered = applyTou(filtered);
       if (!hasHour) {
         touNote = "TOU skipped: no hour on every row.";
+      } else if (!eligible && intervalRows) {
+        touNote = "TOU windows are already applied to NEM12 interval data.";
       } else if (!eligible) {
         touNote = "TOU skipped: this CSV already has peak/shoulder/offpeak columns.";
       } else {
@@ -968,10 +1508,21 @@
     if (dedupe) {
       filtered = dedupeRows(filtered);
     }
-    const monthly = aggregateBy(filtered, (row) => row.month).sort((a, b) => a.key.localeCompare(b.key));
+    const rowsByMonth = new Map();
+    const rowsByGroup = new Map();
+    for (const row of filtered) {
+      if (!rowsByMonth.has(row.month)) {
+        rowsByMonth.set(row.month, []);
+      }
+      rowsByMonth.get(row.month).push(row);
+      if (!rowsByGroup.has(row.neighbourhood)) {
+        rowsByGroup.set(row.neighbourhood, []);
+      }
+      rowsByGroup.get(row.neighbourhood).push(row);
+    }
+    const monthly = aggregateBy(filtered, (row) => row.month).sort((a, b) => compareText(a.key, b.key));
     monthly.forEach((item, index) => {
-      const monthRows = filtered.filter((row) => row.month === item.key);
-      item.tariffBill = estimateBill(monthRows, rates);
+      item.tariffBill = estimateBill(rowsByMonth.get(item.key) || [], rates);
       item.tariff_bill = item.tariffBill;
       if (index === 0) {
         item.mom_grid = null;
@@ -983,31 +1534,35 @@
       item.momGrid = item.mom_grid;
       item.momBill = item.mom_bill;
     });
-    const groups = aggregateBy(filtered, (row) => row.neighbourhood).sort((a, b) => b.grid - a.grid);
+    const groups = aggregateBy(filtered, (row) => row.neighbourhood).sort((a, b) => (b.grid - a.grid) || compareText(a.key, b.key));
     for (const item of groups) {
-      const groupRows = filtered.filter((row) => row.neighbourhood === item.key);
-      item.tariffBill = estimateBill(groupRows, rates);
+      item.tariffBill = estimateBill(rowsByGroup.get(item.key) || [], rates);
       item.tariff_bill = item.tariffBill;
       item.kwh_per_household = item.households ? item.grid / item.households : null;
       item.kwhPerHousehold = item.kwh_per_household;
     }
     const totals = getTotals(filtered, rates);
-    const plans = comparePlans(filtered, null, rates.gst);
+    const plans = comparePlans(filtered, extra.plans === undefined ? null : extra.plans, rates.gst, rates);
     const coverage = calendarCoverage(filtered);
     const whatIf = whatIfPeakShift(filtered, rates, 0.1);
     const whatIfSolar = whatIfSolarSelf(filtered, rates, 0.5);
+    const battery = { ...DEFAULT_BATTERY, cost_aud: null, ...(extra.battery || {}) };
+    const whatIfBatteryResult = whatIfBattery(filtered, rates, battery.capacity_kwh, battery.efficiency, battery.cost_aud);
+    const intervalRows = filtered.filter((row) => row.tier_source === "interval").length;
     return {
       rows: filtered,
       monthly,
       groups,
+      daily: dailySeries(filtered),
       anomalies: getAnomalies(filtered),
-      recommendations: getRecommendations(totals, rates),
+      recommendations: getRecommendations(totals, rates, plans),
       totals,
       heatmap: weekdayHeatmap(filtered),
       tariff: rates,
       households: householdsOf(filtered),
       household: household || "all",
       plans,
+      source: { format: intervalRows ? "nem12" : "csv", interval_rows: intervalRows, hourly: filtered.some(rowHasHour) },
       tou: Boolean(tou),
       tou_applied: touApplied,
       touApplied,
@@ -1019,7 +1574,9 @@
       what_if: whatIf,
       whatIf,
       what_if_solar: whatIfSolar,
-      whatIfSolar
+      whatIfSolar,
+      what_if_battery: whatIfBatteryResult,
+      whatIfBattery: whatIfBatteryResult
     };
   }
 
@@ -1134,9 +1691,22 @@
     VERSION,
     DEFAULT_TARIFF,
     DEFAULT_PLANS,
+    DEFAULT_BATTERY,
     TIER_SPLIT,
     WEEKDAYS,
     parseCsv,
+    parseHourValue,
+    looksLikeNem12,
+    detectFormat,
+    parseNem12,
+    parseNem12Details,
+    parseEnergyText,
+    parseEnergyTextDetails,
+    median,
+    dailyTotals,
+    dailySeries,
+    simulateBattery,
+    whatIfBattery,
     parseDateAndHour,
     parseEnergyCsv,
     normaliseRows,
