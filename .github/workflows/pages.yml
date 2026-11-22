@@ -22,13 +22,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Builds index.html from web/index.html + assets/studio-panel.html (the
+      # same studio markup the reports embed) and copies assets and samples.
       - name: Assemble static site
-        run: |
-          mkdir -p _site
-          cp web/index.html web/404.html _site/
-          cp assets/studio.css assets/studio.js assets/analysis.js _site/
-          cp data/sample_energy_upload.csv _site/
-          touch _site/.nojekyll
+        run: python3 scripts/build_site.py --out _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

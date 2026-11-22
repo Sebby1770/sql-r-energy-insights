@@ -836,8 +836,15 @@ def get_recommendations(
     totals: Mapping[str, Any],
     tariff: Mapping[str, Any] | None = None,
     plans: Mapping[str, Any] | None = None,
+    interval: bool = False,
 ) -> list[dict[str, Any]]:
+    """Quantified savings ideas, largest first.
+
+    ``interval`` marks NEM12 data, whose "consumed" is grid import only (the
+    meter does not see solar used on-site), so the wording says so.
+    """
     recommendations: list[dict[str, Any]] = []
+    base = "grid import" if interval else "consumption"
     rates = coerce_tariff(tariff)
     consumed = float(totals.get("consumed") or 0)
     peak_kwh = float(totals.get("peak") or 0)
@@ -857,7 +864,7 @@ def get_recommendations(
             {
                 "opportunity": "Shift peak usage",
                 "detail": (
-                    f"Peak is {_format_number(peak_share)}% of consumption. "
+                    f"Peak is {_format_number(peak_share)}% of {base}. "
                     "Moving 10% of peak into off-peak could save "
                     f"{_format_money(saving)}."
                 ),
@@ -873,7 +880,7 @@ def get_recommendations(
             {
                 "opportunity": "Increase solar self-consumption",
                 "detail": (
-                    f"Solar exports are {_format_number(solar_offset)}% of consumption. "
+                    f"Solar exports are {_format_number(solar_offset)}% of {base}. "
                     "Using 50% of export on-site could save "
                     f"{_format_money(saving)}."
                 ),
@@ -1485,7 +1492,7 @@ def get_analysis(
         "groups": groups,
         "daily": daily_series(filtered),
         "anomalies": get_anomalies(filtered),
-        "recommendations": get_recommendations(totals, rates, plan_scores),
+        "recommendations": get_recommendations(totals, rates, plan_scores, interval=interval_rows > 0),
         "totals": totals,
         "heatmap": weekday_heatmap(filtered),
         "tariff": rates,

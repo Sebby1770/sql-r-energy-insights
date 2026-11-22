@@ -760,14 +760,33 @@
     };
   }
 
+  function energySums(rows) {
+    // One pass, accumulating in row order exactly like sum(), so results are
+    // bit-identical to the per-field version (and to the Python engine).
+    let peak = 0;
+    let shoulder = 0;
+    let offpeak = 0;
+    let solar = 0;
+    const days = new Set();
+    for (const row of rows) {
+      peak += Number(row.peak) || 0;
+      shoulder += Number(row.shoulder) || 0;
+      offpeak += Number(row.offpeak) || 0;
+      solar += Number(row.solar) || 0;
+      days.add(row.day);
+    }
+    return { peak, shoulder, offpeak, solar, days: days.size };
+  }
+
   function billComponents(rows, tariff) {
     const rates = coerceTariff(tariff);
+    const sums = energySums(rows);
     const energy =
-      sum(rows, "peak") * rates.peak +
-      sum(rows, "shoulder") * rates.shoulder +
-      sum(rows, "offpeak") * rates.offpeak;
-    const exportCredit = sum(rows, "solar") * rates.export_credit;
-    const days = new Set(rows.map((row) => row.day)).size;
+      sums.peak * rates.peak +
+      sums.shoulder * rates.shoulder +
+      sums.offpeak * rates.offpeak;
+    const exportCredit = sums.solar * rates.export_credit;
+    const days = sums.days;
     const supplyCharge = rates.daily_supply * days;
     const exGst = energy + supplyCharge - exportCredit;
     const gstAmount = exGst * rates.gst;
@@ -861,7 +880,7 @@
     for (const row of rows) {
       const household = String(row.household || "Unknown");
       const day = String(row.day || "");
-      const key = JSON.stringify([household, day]);
+      const key = household + KEY_SEP + day;
       if (!totals.has(key)) {
         totals.set(key, {
           day,
@@ -1006,8 +1025,9 @@
     });
   }
 
-  function getRecommendations(totals, tariff, plans) {
+  function getRecommendations(totals, tariff, plans, interval) {
     const recommendations = [];
+    const base = interval ? "grid import" : "consumption";
     const rates = coerceTariff(tariff);
     const peakKwh = Number(totals.peak) || 0;
     const solarKwh = Number(totals.solar) || 0;
@@ -1022,7 +1042,7 @@
       const saving = 0.1 * peakKwh * (rates.peak - rates.offpeak) * gstFactor;
       recommendations.push({
         opportunity: "Shift peak usage",
-        detail: `Peak is ${formatNumber(peakShare)}% of consumption. Moving 10% of peak into off-peak could save ${formatMoney(saving)}.`,
+        detail: `Peak is ${formatNumber(peakShare)}% of ${base}. Moving 10% of peak into off-peak could save ${formatMoney(saving)}.`,
         impact: peakShare >= 45 ? "high" : "medium",
         saving_aud: saving,
         savingAud: saving
@@ -1034,7 +1054,7 @@
       const saving = 0.5 * solarKwh * spread * gstFactor;
       recommendations.push({
         opportunity: "Increase solar self-consumption",
-        detail: `Solar exports are ${formatNumber(solarOffset)}% of consumption. Using 50% of export on-site could save ${formatMoney(saving)}.`,
+        detail: `Solar exports are ${formatNumber(solarOffset)}% of ${base}. Using 50% of export on-site could save ${formatMoney(saving)}.`,
         impact: solarOffset >= 20 ? "high" : "medium",
         saving_aud: saving,
         savingAud: saving
@@ -1203,9 +1223,11 @@
     };
   }
 
+  const KEY_SEP = "\u0001";
+
   function readingKey(row) {
     const hour = rowHasHour(row) ? String(Math.trunc(Number(row.hour))) : "";
-    return JSON.stringify([String(row.household || "Unknown"), String(row.day || ""), hour]);
+    return `${row.household || "Unknown"}${KEY_SEP}${row.day || ""}${KEY_SEP}${hour}`;
   }
 
   function dataQuality(rows) {
@@ -1318,14 +1340,15 @@
     const capacity = Math.max(0, Number(capacityKwh === undefined ? DEFAULT_BATTERY.capacity_kwh : capacityKwh) || 0);
     const eff = clampFraction(efficiency === undefined ? DEFAULT_BATTERY.efficiency : efficiency);
     const adjusted = rows.map((row) => ({ ...row }));
-    const order = adjusted.map((_, index) => index).sort((a, b) => {
-      const left = adjusted[a];
-      const right = adjusted[b];
-      return compareText(String(left.household || "Unknown"), String(right.household || "Unknown"))
-        || compareText(String(left.day || ""), String(right.day || ""))
-        || (rowHasHour(left) ? Number(left.hour) : -1) - (rowHasHour(right) ? Number(right.hour) : -1)
-        || a - b;
-    });
+    const households = adjusted.map((row) => String(row.household || "Unknown"));
+    const days = adjusted.map((row) => String(row.day || ""));
+    const hours = adjusted.map((row) => (rowHasHour(row) ? Number(row.hour) : -1));
+    const order = adjusted.map((_, index) => index).sort((a, b) =>
+      compareText(households[a], households[b])
+        || compareText(days[a], days[b])
+        || hours[a] - hours[b]
+        || a - b
+    );
     const stateOfCharge = new Map();
     let chargedTotal = 0;
     let deliveredTotal = 0;
@@ -1555,7 +1578,7 @@
       groups,
       daily: dailySeries(filtered),
       anomalies: getAnomalies(filtered),
-      recommendations: getRecommendations(totals, rates, plans),
+      recommendations: getRecommendations(totals, rates, plans, intervalRows > 0),
       totals,
       heatmap: weekdayHeatmap(filtered),
       tariff: rates,

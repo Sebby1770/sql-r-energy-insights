@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GridScope Studio</title>
-<meta name="description" content="Turn a household energy CSV into bills, plan comparison, and dollar savings. Runs entirely in your browser.">
+<meta name="description" content="Turn a household energy CSV or NEM12 smart-meter file into bills, plan comparison, a battery what-if, and dollar savings. Runs entirely in your browser.">
 <meta name="theme-color" content="#0b0d09">
 <meta property="og:title" content="GridScope Studio">
-<meta property="og:description" content="Upload a meter CSV. Get a retailer-style bill, the cheapest plan, and dollar savings — in this tab.">
+<meta property="og:description" content="Upload a meter CSV or NEM12 file. Get a retailer-style bill, the cheapest plan, a battery payback, and dollar savings — in this tab.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://sebby1770.github.io/sql-r-energy-insights/">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -51,145 +51,15 @@
 <section class="hero-stage">
   <p class="kicker">A map of the household grid</p>
   <h1>Read the bill like a switchyard.</h1>
-  <p class="lede">Drop a meter CSV. The studio rebills it in this tab — copper for money, phosphor for what you could claw back. No account. No upload. The sample is already live below.</p>
+  <p class="lede">Drop a meter CSV or a NEM12 smart-meter file. The studio rebills it in this tab — copper for money, phosphor for what you could claw back. No account. No upload. The sample is already live below.</p>
 </section>
 
 <main>
-<section class="studio-panel" id="upload-studio" data-autoload="sample">
-<ol class="onboarding-strip" id="onboarding-strip">
-<li><span>01</span> Intake the CSV</li>
-<li><span>02</span> Set the tariff</li>
-<li><span>03</span> Read the recoverable $</li>
-</ol>
-<div class="deck-copy">
-<p class="bay">Bay 01 · Intake</p>
-<h2>Drop the meter tape.</h2>
-<p>A billing or meter file with a date column and kWh columns. Filter by household, rebill live, compare a second file, export the table. Drop one CSV to analyse it, or two to compare.</p>
-</div>
-<div class="upload-controls">
-  <div class="cluster">
-    <label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
-    <button id="load-sample" type="button">Load sample</button>
-  </div>
-  <div class="cluster">
-    <label class="file-picker file-picker-secondary" for="compare-csv">Compare CSV<input id="compare-csv" type="file" accept=".csv,text/csv"></label>
-    <button id="compare-sample" type="button">Compare to sample</button>
-  </div>
-  <div class="cluster">
-    <button id="export-analysis" type="button" disabled>Export JSON</button>
-    <button id="export-csv" type="button" disabled>Export CSV</button>
-    <button id="copy-summary" type="button" disabled>Copy summary</button>
-    <button id="print-bill" type="button" disabled>Print bill</button>
-  </div>
-  <div class="cluster">
-    <button id="theme-toggle" data-theme-toggle type="button" aria-pressed="false">Daylight</button>
-    <a class="template-link" href="sample_energy_upload.csv">Template</a>
-  </div>
-</div>
-<div class="status" id="upload-status">Waiting for data.</div>
-</section>
-
-<section class="report-section" id="personal-results" hidden>
-<p class="bay">Bay 02 · Receipt</p>
-<h2>The bill, rewritten</h2>
-<div class="hero-savings" id="savings-hero">
-  <div class="gauge" aria-hidden="true"></div>
-  <div>
-    <p class="eyebrow">Recoverable on this usage</p>
-    <strong id="savings-hero-amount">$0.00</strong>
-    <p class="chart-note" id="savings-hero-note">Load a CSV to see quantified opportunities.</p>
-  </div>
-</div>
-<div class="what-if-tools">
-<div class="peak-shift-tool" id="peak-shift-wrap">
-<label for="peak-shift">If I shift <span id="peak-shift-label">10%</span> of peak to off-peak</label>
-<input id="peak-shift" type="range" min="0" max="30" value="10" step="1">
-<p class="chart-note" id="peak-shift-saving">Move the slider to estimate savings on this tariff.</p>
-</div>
-<div class="peak-shift-tool" id="solar-shift-wrap">
-<label for="solar-shift">If I self-consume <span id="solar-shift-label">50%</span> of solar export</label>
-<input id="solar-shift" type="range" min="0" max="100" value="50" step="1">
-<p class="chart-note" id="solar-shift-saving">Move the slider to estimate savings on this tariff.</p>
-</div>
-</div>
-<div class="plan-cards" id="plan-cards"></div>
-
-<p class="bay">Bay 03 · Console</p>
-<div class="studio-tools">
-<div class="tool-block" id="household-filter-wrap" hidden>
-<label for="household-filter">Household</label>
-<select id="household-filter"></select>
-</div>
-<div class="tool-block">
-<label for="date-order">Date order</label>
-<select id="date-order">
-<option value="dmy" selected>DMY (AU)</option>
-<option value="mdy">MDY (US)</option>
-<option value="auto">Auto</option>
-</select>
-</div>
-<label class="tool-block tou-toggle" for="tou-toggle">
-<input id="tou-toggle" type="checkbox">
-Apply NSW-style TOU from hour
-</label>
-<label class="tool-block tou-toggle" for="dedupe-toggle">
-<input id="dedupe-toggle" type="checkbox">
-Merge duplicate household+day rows
-</label>
-<p class="tou-banner" id="tou-note" hidden></p>
-<fieldset class="tool-block tariff-editor">
-<legend>Tariff (AUD)</legend>
-<label>Peak <input id="tariff-peak" type="number" inputmode="decimal" min="0" step="0.01" value="0.40"></label>
-<label>Shoulder <input id="tariff-shoulder" type="number" inputmode="decimal" min="0" step="0.01" value="0.28"></label>
-<label>Off-peak <input id="tariff-offpeak" type="number" inputmode="decimal" min="0" step="0.01" value="0.18"></label>
-<label>Export credit <input id="tariff-export" type="number" inputmode="decimal" min="0" step="0.01" value="0.08"></label>
-<label>Daily supply <input id="tariff-supply" type="number" inputmode="decimal" min="0" step="0.01" value="1.10"></label>
-<label>GST rate <input id="tariff-gst" type="number" inputmode="decimal" min="0" step="0.01" value="0.10"></label>
-</fieldset>
-</div>
-
-<p class="bay">Bay 04 · Instruments</p>
-<div class="metrics" id="personal-metrics"></div>
-<div class="metrics" id="weekend-metrics"></div>
-<p class="coverage-callout" id="coverage-callout" hidden></p>
-<p class="quality-callout" id="quality-callout" hidden></p>
-<div class="metrics compare-metrics" id="compare-metrics" hidden></div>
-<div id="compare-monthly" hidden></div>
-<h3>Signals</h3>
-<ul class="insight-list" id="personal-insights"></ul>
-
-<p class="bay">Bay 05 · Traces</p>
-<div class="results-grid">
-<div>
-<h3>Monthly demand</h3>
-<div class="chart" id="monthly-chart"></div>
-</div>
-<div>
-<h3>Cost</h3>
-<div class="chart" id="cost-chart"></div>
-</div>
-</div>
-<h3>Load mix</h3>
-<div class="chart" id="mix-chart"></div>
-<h3>Weekday heatmap</h3>
-<p class="chart-note" id="heatmap-note">Grid import by weekday and month. Hour buckets are used when a timestamp hour is present.</p>
-<div class="chart" id="heatmap-chart"></div>
-
-<p class="bay">Bay 06 · Ledger</p>
-<h3>Monthly table</h3>
-<div id="monthly-table"></div>
-<h3>Group table</h3>
-<div id="group-table"></div>
-<h3>Unusual days</h3>
-<div class="chart" id="anomaly-chart"></div>
-<div id="anomaly-table"></div>
-<h3>Savings opportunities</h3>
-<ul class="insight-list" id="recommendation-list"></ul>
-</section>
+{{STUDIO_PANEL}}
 </main>
 
 <footer class="site-foot">
-<p>Python CLI: <code>python3 -m gridscope your.csv --html report.html</code></p>
+<p>Python CLI: <code>python3 -m gridscope your.csv --html report.html</code> · Rebuild this page: <code>python3 scripts/build_site.py</code></p>
 <p>
   <a href="https://github.com/Sebby1770/sql-r-energy-insights">Source on GitHub</a>
   ·
