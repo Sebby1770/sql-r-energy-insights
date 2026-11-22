@@ -168,3 +168,67 @@ def test_cli_plans_flag_prints_winner(tmp_path, capsys):
     assert "Flex Saver" in out
     assert "Solar Plus" in out
     assert "Flat Comfort" in out
+
+
+NEM12_SAMPLE = ROOT / "data" / "sample_nem12.csv"
+
+
+def test_cli_reads_nem12_and_reports_source(tmp_path, capsys):
+    payload_path = tmp_path / "nem12.json"
+    code = main([str(NEM12_SAMPLE), "--json", str(payload_path), "--battery-cost", "9000"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Source      NEM12 · 30-min intervals · 6408091234" in out
+    assert "Intervals   102 estimated/substituted" in out
+    assert "payback" in out
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["source"]["format"] == "nem12"
+    assert payload["source"]["interval_minutes"] == 30
+    assert payload["source"]["nmis"] == ["6408091234"]
+    assert payload["what_if_battery"]["cost_aud"] == pytest.approx(9000)
+    assert payload["what_if_battery"]["payback_years"] > 0
+    assert len(payload["daily"]) == 365
+
+
+def test_cli_battery_flags_and_plans_file(tmp_path, capsys):
+    plans = tmp_path / "offers.json"
+    plans.write_text(
+        json.dumps(
+            [
+                {"name": "Night Owl", "peak": 0.55, "shoulder": 0.30, "offpeak": 0.10, "daily_supply": 1.0},
+                {"name": "Steady", "peak": 0.30, "shoulder": 0.30, "offpeak": 0.30, "daily_supply": 1.3},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    payload_path = tmp_path / "out.json"
+    code = main(
+        [
+            str(SAMPLE),
+            "--plans",
+            "--plans-file",
+            str(plans),
+            "--battery-kwh",
+            "5",
+            "--battery-efficiency",
+            "0.8",
+            "--json",
+            str(payload_path),
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Night Owl" in out and "Steady" in out
+    assert "Battery     5.0 kWh" in out
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert [plan["name"] for plan in payload["plans"]["plans"]] == ["Night Owl", "Steady"]
+    assert payload["what_if_battery"]["capacity_kwh"] == pytest.approx(5)
+    assert payload["what_if_battery"]["efficiency"] == pytest.approx(0.8)
+    assert payload["what_if_battery"]["payback_years"] is None
+
+
+def test_cli_bad_plans_file_is_a_clean_error(tmp_path, capsys):
+    plans = tmp_path / "offers.json"
+    plans.write_text("[]", encoding="utf-8")
+    assert main([str(SAMPLE), "--plans-file", str(plans)]) == 1
+    assert "non-empty list of plans" in capsys.readouterr().err

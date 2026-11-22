@@ -1,64 +1,85 @@
 # GridScope Studio
 
-![version](https://img.shields.io/badge/version-0.8.0-c6f35a)
+![version](https://img.shields.io/badge/version-0.9.0-c6f35a)
 
 **Live site:** [https://sebby1770.github.io/sql-r-energy-insights/](https://sebby1770.github.io/sql-r-energy-insights/)
 
-[github.com/Sebby1770/sql-r-energy-insights](https://github.com/Sebby1770/sql-r-energy-insights)
+GridScope turns a household energy file into a retailer-style bill, the cheapest plan, quantified savings, unusual days and a battery payback estimate. It reads billing/meter CSVs and **NEM12 smart-meter interval files**, the format Australian retailers and distributors export.
 
-A lightweight energy analysis studio for turning household billing or meter CSVs into retailer-style bills, dollar savings, plan comparison, charts, and short observations.
+There are three ways to run it, all sharing one set of formulas:
 
-The GitHub Pages studio runs entirely in the browser (sample data loads on first visit; your CSV never leaves the tab). The Python engine (`python3 -m gridscope`) analyses the same files on the command line without R. The original R + SQLite pipeline is still available for the demo portfolio.
+- **The studio** on GitHub Pages runs entirely in the browser. The sample loads on first visit, and your file never leaves the tab.
+- **The Python engine** (`python3 -m gridscope`) analyses the same files on the command line. It is stdlib only and needs no R.
+- **The original R + SQLite pipeline** builds the demo portfolio report.
 
-## Quick Start
-
-Python path (no R):
+## Quick start
 
 ```sh
-python3 -m gridscope data/sample_energy_upload.csv --html output/py-report.html
+# Daily billing CSV
+python3 -m gridscope data/sample_energy_upload.csv --html output/py-report.html --plans
+
+# NEM12 interval file (detected automatically), with a battery payback estimate
+python3 -m gridscope data/sample_nem12.csv --html output/py-nem12-report.html --battery-cost 9000
+
 # or
-make demo-py
-open output/py-report.html
+make demo-py demo-nem12
+```
+
+The CLI always prints a summary:
+
+```text
+GridScope 0.9.0
+Source      NEM12 · 30-min intervals · 6408091234
+Days        365
+Grid kWh    3093.2
+Tariff bill $675.21
+Cheapest    Solar Plus
+Intervals   102 estimated/substituted, 0 missing
+Switch save $258.33
+Battery     10.0 kWh saves $513.59 ($514/yr annualised), payback 17.5 yr
 ```
 
 R demo portfolio:
 
 ```sh
-make demo
-open output/report.html
-```
-
-Analyse your own CSV with R:
-
-```sh
+make demo                     # output/report.html
 make custom INPUT=data/sample_energy_upload.csv OUTPUT=output/custom-report.html
-open output/custom-report.html
 ```
 
-## CSV Columns
+## Input formats
+
+### NEM12 (smart-meter interval data)
+
+Download your interval data from your retailer or distributor portal (it is often called "NEM12", "interval data" or "detailed usage") and drop it in. GridScope reads:
+
+- `200` channel records. Suffixes starting with **E** are import (usage) and become grid kWh. Suffixes starting with **B** are export (solar feed-in). Reactive channels (`Q`, `K`, kVArh) are skipped and named in the source badge.
+- `300` interval days at 1, 5, 10, 15, 30 or 60-minute intervals, in Wh, kWh or MWh.
+- `400` per-interval quality for `V` days. Estimated or substituted (`E`, `S`, `F`) and missing (`N` or blank) intervals are counted in data quality instead of being hidden.
+
+Intervals roll up to one row per NMI, day and hour. Because the time of every kWh is known, import is tiered with the TOU windows below rather than the 44/34/22 split used for single-total CSVs. Times are NEM market time (AEST, no daylight saving), as the file states them.
+
+### Column CSV
 
 Required:
 
-- `day` or `date`
-- either `grid_import_kwh` or `total_kwh`, or the tiered fields `peak_kwh`, `shoulder_kwh`, and `offpeak_kwh`
+- `day` or `date` (also `reading_date`, `timestamp`)
+- either `grid_import_kwh` or `total_kwh`, or the tiered fields `peak_kwh`, `shoulder_kwh` and `offpeak_kwh`
 
 Optional:
 
-- `household_id`
+- `household_id` (or `account_id`, `site_id`, `meter_id`)
 - `neighbourhood` or `suburb`
 - `solar_export_kwh`
 - `estimated_bill`
-- `hour` (or a timestamp with a time component) for an hour-of-day heatmap and optional TOU retiering
+- `hour`, or `time` / `interval_time` (`13:30`, `1:30 pm`), or a timestamp with a time. These enable the hour-of-day heatmap and optional TOU retiering.
 
-The browser upload flow accepts the same columns and produces graphs immediately in the page.
+If only a total or grid-import column is supplied, usage is split 44% peak / 34% shoulder / 22% off-peak so tariff maths still works.
 
-If only a total or grid-import column is supplied, usage is split 44% peak / 34% shoulder / 22% off-peak so tariff math still works.
-
-Dates like `01/02/2025` default to **DMY** (1 February). Pass `--date-order mdy` or `auto` (0.3 heuristic: first component is the month unless it is `> 12`).
+Dates like `01/02/2025` default to **DMY** (1 February). Pass `--date-order mdy` or `auto`.
 
 ## Tariff and bill
 
-Default rates are AUD:
+Default rates are in AUD:
 
 | Component | Rate |
 | --- | ---: |
@@ -69,8 +90,6 @@ Default rates are AUD:
 | Daily supply | 1.10 /day |
 | GST | 0.10 |
 
-Bill:
-
 ```text
 energy  = peak×peak + shoulder×shoulder + off-peak×off-peak
 export  = solar×export_credit
@@ -78,20 +97,19 @@ ex GST  = energy + daily_supply×distinct_days − export
 inc GST = ex GST × (1 + gst)
 ```
 
-`estimate_bill` returns the GST-inclusive amount. Totals also expose `tariff_bill_ex_gst`, `supply_charge`, `gst_amount`, and `cost_per_kwh` (`tariff_bill / consumed`).
-
-In the studio the tariff editor rebills live, including supply and GST. On the CLI:
+The studio's tariff editor rebills live. On the CLI:
 
 ```sh
 python3 -m gridscope data/sample_energy_upload.csv \
   --tariff-peak 0.42 --tariff-shoulder 0.28 --tariff-offpeak 0.16 \
-  --tariff-export 0.07 --tariff-supply 1.10 --tariff-gst 0.10 \
-  --html output/py-report.html
+  --tariff-export 0.07 --tariff-supply 1.10 --tariff-gst 0.10
 ```
 
-## Plans
+**TOU windows** (used for NEM12, and for hourly CSVs with `--tou`): weekends are off-peak. On weekdays, 14–19 is peak, 7–13 and 20–21 are shoulder, and the rest is off-peak.
 
-Three named plans are scored on the loaded usage (`--plans` on the CLI; three cards in the studio):
+## Plans and switching
+
+Three named plans are scored on the loaded usage, alongside your current tariff:
 
 | Plan | Peak | Shoulder | Off-peak | Export | Supply |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -99,119 +117,112 @@ Three named plans are scored on the loaded usage (`--plans` on the CLI; three ca
 | Solar Plus | 0.38 | 0.27 | 0.17 | 0.12 | 1.35 |
 | Flat Comfort | 0.32 | 0.32 | 0.32 | 0.05 | 1.60 |
 
-GST follows the current tariff GST field. The cheapest plan is marked as the winner.
+The analysis reports what your current tariff bills (`plans.current_bill`) and how much the cheapest plan would save (`plans.switch_saving`). When a plan beats your tariff, a quantified **Switch to <plan>** recommendation is added.
 
-## Compare, household filter, TOU
+Score the offers you have actually been quoted:
 
-- **Household filter**: when a file has more than one `household_id`, the studio shows a selector. CLI: `--household H-101`.
-- **Compare**: upload a second CSV or click “Compare to sample”. Cards show Δ kWh, Δ tariff bill, and shared days, plus a monthly delta table for shared months. CLI: `--compare other.csv`.
-- **TOU from hour**: `--tou` or the studio checkbox. If every row has an hour, grid kWh is retiered: weekends off-peak; weekday 14–19 peak; weekday 7–13 and 20–21 shoulder; otherwise off-peak.
-- **Weekday vs weekend**: unique days, consumed kWh, and GST-inclusive bills for Sat/Sun versus the rest.
-- **Data quality**: duplicate household+day keys, negative energy, and zero-grid days are flagged, not dropped. Optional `--dedupe` / studio checkbox merges duplicate keys by summing energy.
-- **Peak-shift what-if**: studio slider (0–30%) estimates the saving if that share of peak kWh moved to off-peak on the current tariff.
-- **Solar self-consumption what-if**: studio slider (0–100%) estimates the saving from using that share of solar export on-site.
+```sh
+python3 -m gridscope my-usage.csv --plans --plans-file offers.json
+```
 
-Identical files produce a ~0 kWh and ~0 bill delta.
+```json
+{
+  "plans": [
+    {"name": "Retailer A Night Saver", "peak": 0.52, "shoulder": 0.30, "offpeak": 0.12,
+     "export_credit": 0.05, "daily_supply": 1.05},
+    {"name": "Retailer B Flat", "peak": 0.31, "shoulder": 0.31, "offpeak": 0.31,
+     "export_credit": 0.06, "daily_supply": 1.20}
+  ]
+}
+```
 
-Anomalies compare each day to **that household’s** mean when the household has at least four rows, otherwise the global mean. Recommendations include `saving_aud` (peak shift 10%, solar self-consumption 50%) and a spend review with a projected 30-day cost.
+GST follows the tariff GST setting.
 
-## Tests
+## Battery what-if
 
-No R required:
+Would a home battery pay for itself on *your* usage? GridScope runs one battery per household through the readings in time order:
+
+1. In each reading, the battery charges from solar that would otherwise have been exported, up to its capacity.
+2. It then discharges into grid import: peak first, then shoulder, then off-peak. Round-trip losses are taken on the way out.
+3. Charge carries over between readings. With interval data, midday solar feeds the evening peak. With daily data, each day charges then discharges.
+
+The saving is the difference between the GST-inclusive bills before and after, including the export credit you give up. It is annualised as `saving × 365 / days` and divided into the installed cost to give a payback period. There is no inverter power (kW) limit, so very short intervals are slightly flattered. A single season of data skews the annualised figure.
+
+```sh
+python3 -m gridscope data/sample_nem12.csv --battery-kwh 13.5 --battery-efficiency 0.9 --battery-cost 11000
+```
+
+The studio has a capacity slider (0–20 kWh) and a field for the installed cost from your quote.
+
+## Unusual days
+
+Anomalies are scored on **household-day totals**. Interval readings are summed per day first, so a busy evening hour is not "unusual". Each day is compared with a seasonal baseline: the same household's days within ±15 days, so a cold July day is judged against July and not against the whole year.
+
+- With at least 7 days in that window and a non-zero spread, GridScope uses the **modified z-score**, `0.6745 × (kWh − median) / MAD` (MAD is the median absolute deviation). A day is flagged when |z| ≥ 3.5 (Iglewicz & Hoaglin). Medians are not dragged around by the spikes being hunted, unlike a mean.
+- Short or perfectly flat histories fall back to a ratio rule against the median: at least 1.5× is a spike, at most 0.5× is a dip.
+- Households with fewer than 4 days are compared against the median of every household-day.
+
+Each flag reports `method` (`mad` or `ratio`), `z_score`, `baseline_kwh` and percent of baseline. The sample year has four planted events (a heatwave, a week away, a faulty heater, a pool pump left on). All four are caught, with |z| from about 4 (the week away) to 21 (the heatwave).
+
+## Studio tools
+
+- CSV or NEM12 upload, drag-and-drop (one file to analyse, two to compare), daily and NEM12 sample loaders, and a source badge
+- A hero card showing what this usage could save, with peak-shift (0–30%), solar self-consumption (0–100%) and **battery** (0–20 kWh, with payback) what-ifs
+- Plan cards with the winner outlined, plus the switch saving against your current tariff
+- Household filter, date order, TOU toggle, duplicate merge and a live tariff editor
+- Weekday/weekend split, a coverage callout, and data-quality flags (duplicates, negatives, estimated and missing intervals)
+- Charts: monthly demand, cost, **daily trace with unusual days marked**, load mix, and a weekday × month/hour heatmap
+- Ledger tables for months, groups and unusual days (with method and z), plus savings opportunities
+- Compare a second file: Δ kWh, Δ bill, shared days and a monthly delta
+- JSON and CSV export, copy summary, print bill, and a dark/daylight theme
+
+## Development
 
 ```sh
 python3 -m pip install pytest
-make test
-make verify-py
+make test          # pytest: engine, CLI, NEM12, battery, site build, Python↔JS parity (node)
+make test-r        # base-R tests for the R + SQLite pipeline
+make samples       # regenerate data/sample_*.csv (deterministic; CI runs make samples-check)
+make site          # build the GitHub Pages studio into _site/
+make verify-py     # tests + both Python reports
+make verify        # R demo + custom pipelines
 ```
 
-`make verify` still runs the R + SQLite pipeline.
+`gridscope/analysis.py` (plus `gridscope/nem12.py`) is the source of truth. `assets/analysis.js` reimplements the same formulas so the studio can analyse files in the browser. `tests/test_parity_golden.py` runs seven cases through both engines and compares every number, so the two copies cannot drift silently.
 
-## Requirements
+### Requirements
 
-- Python 3.11+ for the engine, CLI, and tests (stdlib only at runtime)
-- Optional: R 4.x and `sqlite3` for `make demo` / `make custom`
+- Python 3.11+ (stdlib only at runtime)
+- Optional: Node 18+ for the parity tests
+- Optional: R 4.x and `sqlite3` for `make demo`, `make custom` and `make test-r`
 
-On macOS, SQLite is usually already available. Check with:
-
-```sh
-sqlite3 --version
-```
-
-## Project Structure
+## Project structure
 
 ```text
 .
-├── gridscope/           Python engine + CLI
-├── tests/               pytest (no R)
-├── R/
-│   └── run_analysis.R
+├── gridscope/            Python engine (analysis.py, nem12.py), CLI, HTML report
 ├── assets/
-│   ├── analysis.js      Browser copy of the analysis formulas
-│   ├── studio.js
+│   ├── analysis.js       Browser copy of the engine
+│   ├── studio.js         Studio UI
 │   ├── studio.css
-│   └── studio-panel.html
-├── web/                 GitHub Pages studio (assembled in Actions)
+│   └── studio-panel.html Studio markup shared by the site and every report
+├── web/                  GitHub Pages page template (built by scripts/build_site.py)
+├── scripts/
+│   ├── make_samples.py   Deterministic sample generator
+│   └── build_site.py     Pages site assembler
 ├── data/
-│   └── sample_energy_upload.csv
-├── sql/
-│   ├── schema.sql
-│   ├── seed.sql
-│   ├── user_upload_schema.sql
-│   └── queries/
-└── output/
-    ├── figures/
-    ├── tables/
-    ├── report.html
-    └── py-report.html
+│   ├── sample_energy_upload.csv   A year of daily readings, four households
+│   └── sample_nem12.csv           A year of 30-minute NEM12 for one NMI
+├── tests/                pytest suites, fixtures/, and test_analysis.R
+├── R/run_analysis.R      R + SQLite pipeline
+├── sql/                  Schema, seed and queries for the R pipeline
+└── output/               Generated reports, tables and figures
 ```
-
-Python `gridscope/analysis.py` is the source of truth for parse, totals, anomalies, recommendations, tariff bills, plans, compare, weekend split, data quality, peak-shift and solar self-consumption what-ifs, optional dedupe, TOU, and the weekday heatmap. `assets/analysis.js` reimplements the same formulas so the report can analyse uploads entirely in the browser.
 
 ## Outputs
 
-- `output/report.html`: R demo report with the browser studio
-- `output/py-report.html`: Python report with the same studio controls
+- `output/py-report.html` and `output/py-nem12-report.html`: Python reports with the full studio embedded
+- `output/report.html`: the R demo portfolio report
 - `output/custom-report.html`: generated when an input CSV is supplied to R
-- `output/tables/`: CSV summaries (`user_*.csv` from R, `py_*.csv` from Python)
+- `output/tables/`: CSV summaries (`py_*.csv` from Python, including `py_daily.csv` and `py_battery.csv`, and `user_*.csv` from R)
 - `output/figures/`: PNG charts generated by R
-
-## Analysis Included
-
-- Monthly grid import and solar export trends
-- Load mix across peak, shoulder, off-peak, and solar export
-- Group comparison by neighbourhood or suburb
-- Live tariff rebill with daily supply and GST
-- Named plan comparison (Flex Saver / Solar Plus / Flat Comfort)
-- Household filter when multiple sites are present
-- Dataset compare (delta kWh, delta bill, shared days, monthly delta)
-- Weekday vs weekend days, kWh, and bills
-- Data-quality flags (duplicate days, negative energy, zero grid) and optional duplicate merge
-- Live peak-shift what-if (move N% of peak to off-peak)
-- Live solar self-consumption what-if (use N% of export on-site)
-- Group kWh per household
-- Optional NSW-style TOU retiering from hour
-- Weekday × month heatmap (weekday × hour when a time is present)
-- Unusual usage day detection versus household or global baseline
-- Dollar savings for peak shifting, solar self-consumption, and spend review
-- Dark mode, JSON export, and CSV export of the current monthly table
-
-## Browser Tools
-
-The demo and Python reports include:
-
-- CSV upload with immediate charts and tables
-- Three-step onboarding strip
-- Hero card: this month you could save
-- Peak-shift slider (0–30%) and solar self-consumption slider (0–100%) under the savings hero
-- Weekday vs weekend metric cards and a data-quality callout
-- Optional merge of duplicate household+day rows
-- Three plan cards with the winner outlined
-- Household filter
-- Date-order select and TOU checkbox
-- Tariff editor (peak / shoulder / off-peak / export / supply / GST) with live rebill
-- Compare CSV / compare to sample, with a monthly delta table
-- Weekday heatmap
-- Dark mode toggle
-- JSON export and CSV export of the current analysis table
-- Sample data loader (fetches `data/sample_energy_upload.csv` over HTTP, inline fallback for `file://`)

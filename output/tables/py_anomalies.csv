@@ -1,0 +1,15 @@
+day,household,neighbourhood,grid_kwh,pct_of_average,anomaly_type,baseline,baseline_kwh,method,z_score
+2025-01-30,H-101,Northbank,55.46,346.4,high_spike,household,16.01,mad,21.46
+2025-07-08,H-201,East Park,47.99,363.3,high_spike,household,13.21,mad,14.94
+2025-04-15,H-301,Harbourview,56.88,253.1,high_spike,household,22.47,mad,6.89
+2025-07-10,H-201,East Park,42.57,322.3,high_spike,household,13.21,mad,13.03
+2025-07-09,H-201,East Park,42.29,320.1,high_spike,household,13.21,mad,12.49
+2025-09-20,H-102,Northbank,0.94,10.4,low_dip,household,9.06,mad,-4.98
+2025-09-25,H-102,Northbank,1.0,11.3,low_dip,household,8.84,mad,-4.48
+2025-09-22,H-102,Northbank,1.03,11.6,low_dip,household,8.85,mad,-4.03
+2025-09-21,H-102,Northbank,1.06,12.0,low_dip,household,8.85,mad,-4.01
+2025-09-26,H-102,Northbank,1.11,12.6,low_dip,household,8.84,mad,-4.87
+2025-09-23,H-102,Northbank,1.15,13.0,low_dip,household,8.85,mad,-3.96
+2025-09-24,H-102,Northbank,1.23,13.9,low_dip,household,8.84,mad,-4.35
+2025-05-25,H-301,Harbourview,30.46,131.6,high_spike,household,23.15,mad,3.98
+2025-12-28,H-301,Harbourview,24.94,134.9,high_spike,household,18.49,mad,3.82
