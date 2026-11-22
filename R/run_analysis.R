@@ -1,6 +1,10 @@
 #!/usr/bin/env Rscript
 
 APP_TITLE <- "GridScope Studio"
+VERSION <- "0.9.0"
+
+# How a single total column is split when a file has no tier columns.
+ESTIMATED_TIER_SHARES <- list(peak = 0.44, shoulder = 0.34, offpeak = 0.22)
 
 get_project_root <- function() {
   args <- commandArgs(trailingOnly = FALSE)
@@ -55,17 +59,30 @@ parse_cli_args <- function() {
 }
 
 run_checked <- function(command, args, stdin = NULL) {
+  # stderr goes to its own file rather than being merged into stdout. Merging
+  # meant any sqlite3 warning was spliced into the CSV that query_to_frame
+  # parses, silently corrupting every table downstream of it.
+  err_file <- tempfile(fileext = ".err")
+  on.exit(unlink(err_file), add = TRUE)
+
   output <- system2(
     command = command,
     args = args,
     stdin = stdin,
     stdout = TRUE,
-    stderr = TRUE
+    stderr = err_file
   )
   status <- attr(output, "status")
+  diagnostics <- if (file.exists(err_file)) readLines(err_file, warn = FALSE) else character(0)
+  diagnostics <- diagnostics[nzchar(trimws(diagnostics))]
 
   if (!is.null(status) && status != 0) {
-    stop(paste(output, collapse = "\n"), call. = FALSE)
+    stop(paste(c(diagnostics, output), collapse = "\n"), call. = FALSE)
+  }
+
+  # Succeeded but said something: report it instead of swallowing it.
+  for (line in diagnostics) {
+    message("sqlite3: ", line)
   }
 
   output
@@ -79,7 +96,9 @@ execute_sql_file <- function(sqlite, db_path, sql_file) {
 query_to_frame <- function(sqlite, db_path, sql_file) {
   output <- run_checked(
     sqlite,
-    c("-header", "-csv", db_path),
+    # -csv must come before -header: sqlite 3.54 resets the header flag when
+    # it switches mode, which dropped the header row and shifted every column.
+    c("-csv", "-header", db_path),
     stdin = sql_file
   )
 
@@ -127,23 +146,152 @@ find_column <- function(headers, candidates) {
   match_index[[1]]
 }
 
-parse_user_dates <- function(values) {
-  values <- trimws(as.character(values))
-  parsed <- rep(as.Date(NA), length(values))
-  formats <- c("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y", "%Y/%m/%d")
+DATE_LAYOUTS <- list(
+  list(name = "iso", pattern = "^([0-9]{4})[-/]([0-9]{1,2})[-/]([0-9]{1,2})$", order = c("y", "m", "d")),
+  list(name = "day-first", pattern = "^([0-9]{1,2})[-/]([0-9]{1,2})[-/]([0-9]{2,4})$", order = c("d", "m", "y")),
+  list(name = "month-first", pattern = "^([0-9]{1,2})[-/]([0-9]{1,2})[-/]([0-9]{2,4})$", order = c("m", "d", "y"))
+)
 
-  for (format in formats) {
-    candidates <- suppressWarnings(as.Date(values, format = format))
-    parsed[is.na(parsed) & !is.na(candidates)] <- candidates[is.na(parsed) & !is.na(candidates)]
+#' Build a Date from parts, rejecting impossible days.
+#'
+#' ISOdate() rolls 31 February forward into March; comparing the result back
+#' against the requested parts catches that.
+make_date <- function(year, month, day) {
+  if (is.na(year) || is.na(month) || is.na(day)) {
+    return(as.Date(NA))
   }
-
-  parsed
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return(as.Date(NA))
+  }
+  candidate <- as.Date(sprintf("%04d-%02d-%02d", year, month, day), format = "%Y-%m-%d")
+  if (is.na(candidate)) {
+    return(as.Date(NA))
+  }
+  if (!identical(format(candidate, "%Y-%m-%d"), sprintf("%04d-%02d-%02d", year, month, day))) {
+    return(as.Date(NA))
+  }
+  candidate
 }
 
-numeric_values <- function(values, default = 0) {
-  cleaned <- gsub("[$,[:space:]]", "", as.character(values))
+apply_date_layout <- function(values, layout) {
+  values <- trimws(as.character(values))
+  matches <- regmatches(values, regexec(layout$pattern, values))
+
+  vapply(
+    matches,
+    function(match) {
+      if (length(match) < 4) {
+        return(as.numeric(as.Date(NA)))
+      }
+      parts <- as.integer(match[2:4])
+      names(parts) <- layout$order
+      year <- parts[["y"]]
+      if (year < 100) {
+        year <- 2000L + year
+      }
+      as.numeric(make_date(year, parts[["m"]], parts[["d"]]))
+    },
+    numeric(1)
+  )
+}
+
+#' Choose one date layout for the whole column.
+#'
+#' The previous implementation tried each format per *value*, so a file
+#' containing both "1/2/2024" and "13/2/2024" parsed the first as 1 February
+#' under one format and the second as 13 February under another — two different
+#' conventions inside one column, with no warning.
+detect_date_format <- function(values) {
+  best <- list(layout = NULL, parsed = rep(NA_real_, length(values)), parsed_count = 0L)
+
+  for (layout in DATE_LAYOUTS) {
+    parsed <- apply_date_layout(values, layout)
+    count <- sum(!is.na(parsed))
+    if (count > best$parsed_count) {
+      best <- list(layout = layout, parsed = parsed, parsed_count = count)
+    }
+  }
+
+  list(
+    format = if (is.null(best$layout)) NA_character_ else best$layout$name,
+    layout = best$layout,
+    parsed = as.Date(best$parsed, origin = "1970-01-01"),
+    parsed_count = best$parsed_count
+  )
+}
+
+#' TRUE when day-first and month-first readings would both fit the data.
+#'
+#' "03/05/2024" is 3 May in most of the world and 5 March in the US. We follow
+#' the day-first reading, but say so rather than choosing in silence.
+is_ambiguous_slash_column <- function(values) {
+  values <- trimws(as.character(values))
+  parts <- regmatches(values, regexec("^([0-9]{1,2})[/-]([0-9]{1,2})[/-][0-9]{2,4}$", values))
+  both_small <- vapply(
+    parts,
+    function(match) {
+      if (length(match) < 3) {
+        return(FALSE)
+      }
+      as.integer(match[[2]]) <= 12 && as.integer(match[[3]]) <= 12
+    },
+    logical(1)
+  )
+  any(both_small)
+}
+
+parse_user_dates <- function(values) {
+  detection <- detect_date_format(values)
+
+  if (is.null(detection$layout)) {
+    return(rep(as.Date(NA), length(values)))
+  }
+
+  if (detection$format == "day-first" && is_ambiguous_slash_column(values)) {
+    message(
+      "Dates like 03/05/2024 were read day-first. ",
+      "Use YYYY-MM-DD if that is not what you meant."
+    )
+  }
+
+  unparsed <- sum(is.na(detection$parsed))
+  if (unparsed > 0) {
+    message(
+      "Skipped ", unparsed, " row(s) whose date did not match the ",
+      detection$format, " layout."
+    )
+  }
+
+  detection$parsed
+}
+
+# Set by numeric_values() so the report can tell people how much of their file
+# could not be read as a number instead of quietly treating it as zero.
+COERCION_LOG <- new.env(parent = emptyenv())
+COERCION_LOG$unreadable <- 0L
+
+reset_coercion_log <- function() {
+  COERCION_LOG$unreadable <- 0L
+}
+
+numeric_values <- function(values, default = 0, label = NULL) {
+  raw <- as.character(values)
+  cleaned <- gsub("[$,[:space:]]", "", raw)
   cleaned[cleaned == ""] <- NA_character_
   parsed <- suppressWarnings(as.numeric(cleaned))
+
+  # Blank cells are a legitimate "no reading"; text that is not a number is a
+  # data-quality problem worth counting.
+  unreadable <- is.na(parsed) & !is.na(cleaned)
+  if (any(unreadable)) {
+    COERCION_LOG$unreadable <- COERCION_LOG$unreadable + sum(unreadable)
+    message(
+      "Could not read ", sum(unreadable), " value(s)",
+      if (is.null(label)) "" else paste0(" in ", label),
+      " as numbers (e.g. \"", raw[unreadable][[1]], "\"); treated as ", default, "."
+    )
+  }
+
   parsed[is.na(parsed)] <- default
   parsed
 }
@@ -167,6 +315,7 @@ column_or_default <- function(data, column, default) {
 }
 
 normalise_user_csv <- function(input_path) {
+  reset_coercion_log()
   raw <- read.csv(
     input_path,
     stringsAsFactors = FALSE,
@@ -207,25 +356,34 @@ normalise_user_csv <- function(input_path) {
     stop("No valid dates were found in the input CSV.", call. = FALSE)
   }
 
+  skipped_rows <- sum(!valid_rows)
   raw <- raw[valid_rows, , drop = FALSE]
   dates <- dates[valid_rows]
 
-  supplied_total <- numeric_values(column_or_default(raw, columns$total, column_or_default(raw, columns$grid, 0)))
-  peak <- numeric_values(column_or_default(raw, columns$peak, 0))
-  shoulder <- numeric_values(column_or_default(raw, columns$shoulder, 0))
-  offpeak <- numeric_values(column_or_default(raw, columns$offpeak, 0))
+  supplied_total <- numeric_values(
+    column_or_default(raw, columns$total, column_or_default(raw, columns$grid, 0)),
+    label = "the total/grid column"
+  )
+  peak <- numeric_values(column_or_default(raw, columns$peak, 0), label = "peak_kwh")
+  shoulder <- numeric_values(column_or_default(raw, columns$shoulder, 0), label = "shoulder_kwh")
+  offpeak <- numeric_values(column_or_default(raw, columns$offpeak, 0), label = "offpeak_kwh")
 
   if (!has_tiered_usage) {
-    peak <- supplied_total * 0.44
-    shoulder <- supplied_total * 0.34
-    offpeak <- supplied_total * 0.22
+    peak <- supplied_total * ESTIMATED_TIER_SHARES$peak
+    shoulder <- supplied_total * ESTIMATED_TIER_SHARES$shoulder
+    offpeak <- supplied_total * ESTIMATED_TIER_SHARES$offpeak
   }
 
-  solar <- numeric_values(column_or_default(raw, columns$solar, 0))
+  solar <- numeric_values(column_or_default(raw, columns$solar, 0), label = "solar_export_kwh")
   grid <- if (is.na(columns$grid)) {
     pmax(0, peak + shoulder + offpeak - solar)
   } else {
-    numeric_values(raw[[columns$grid]])
+    # Already counted once as the supplied total when there is no total column.
+    if (is.na(columns$total)) {
+      supplied_total
+    } else {
+      numeric_values(raw[[columns$grid]], label = "grid_import_kwh")
+    }
   }
 
   bill <- if (is.na(columns$bill)) {
@@ -239,7 +397,7 @@ normalise_user_csv <- function(input_path) {
   household[trimws(household) == ""] <- "Unknown"
   neighbourhood[trimws(neighbourhood) == ""] <- "Ungrouped"
 
-  data.frame(
+  frame <- data.frame(
     day = format(dates, "%Y-%m-%d"),
     household_id = household,
     neighbourhood = neighbourhood,
@@ -249,8 +407,35 @@ normalise_user_csv <- function(input_path) {
     solar_export_kwh = round(solar, 4),
     grid_import_kwh = round(grid, 4),
     estimated_bill = round(bill, 4),
+    # Must stay the last column: .import maps by position onto user_readings.
+    tier_source = if (has_tiered_usage) "measured" else "estimated",
     stringsAsFactors = FALSE
   )
+  attr(frame, "tier_source") <- if (has_tiered_usage) "measured" else "estimated"
+  attr(frame, "unreadable_values") <- COERCION_LOG$unreadable
+  attr(frame, "skipped_rows") <- skipped_rows
+  frame
+}
+
+#' First row of `frame` after sorting by `column`, or NULL for an empty frame.
+#'
+#' `frame[order(...), ][1, ]` on a zero-row frame yields a row of NAs, which
+#' reached the page as "NA kWh".
+top_row <- function(frame, column, decreasing = TRUE) {
+  if (is.null(frame) || nrow(frame) == 0 || !(column %in% names(frame))) {
+    return(NULL)
+  }
+  frame[order(frame[[column]], decreasing = decreasing), , drop = FALSE][1, , drop = FALSE]
+}
+
+is_nem12_file <- function(path) {
+  lines <- readLines(path, n = 20, warn = FALSE)
+  lines <- trimws(sub("^\ufeff", "", lines))
+  lines <- lines[nzchar(lines)]
+  if (length(lines) == 0) {
+    return(FALSE)
+  }
+  grepl("^\"?100\"?,\"?NEM12", lines[[1]], ignore.case = TRUE) || grepl("^\"?200\"?,", lines[[1]])
 }
 
 write_table <- function(data, path) {
@@ -288,6 +473,7 @@ load_studio_workspace <- function(root, template_href = "../data/sample_energy_u
   path <- file.path(root, "assets", "studio-panel.html")
   html <- paste(readLines(path, warn = FALSE), collapse = "\n")
   html <- gsub("{{TEMPLATE_HREF}}", template_href, html, fixed = TRUE)
+  html <- gsub("{{NEM12_HREF}}", sub("sample_energy_upload\\.csv$", "sample_nem12.csv", template_href), html, fixed = TRUE)
   html <- gsub("{{TARIFF_PEAK}}", "0.40", html, fixed = TRUE)
   html <- gsub("{{TARIFF_SHOULDER}}", "0.28", html, fixed = TRUE)
   html <- gsub("{{TARIFF_OFFPEAK}}", "0.18", html, fixed = TRUE)
@@ -316,11 +502,33 @@ studio_scripts_html <- function(source_csv = NULL, label = "Uploaded CSV") {
 }
 
 data_frame_to_html <- function(data, limit = 8) {
+  if (is.null(data) || nrow(data) == 0 || ncol(data) == 0) {
+    return("<p class=\"empty\">No rows for this section.</p>")
+  }
+
   data <- head(data, limit)
   header <- paste0("<th>", html_escape(names(data)), "</th>", collapse = "")
-  rows <- apply(data, 1, function(row) {
-    paste0("<tr>", paste0("<td>", html_escape(as.character(row)), "</td>", collapse = ""), "</tr>")
+
+  # Format column by column. apply() over rows coerces the whole frame through
+  # a character matrix, which pads numbers with alignment spaces and turns
+  # NA into the literal string "NA".
+  cells <- lapply(data, function(column) {
+    if (is.numeric(column)) {
+      formatted <- ifelse(is.na(column), "—", format(column, trim = TRUE, big.mark = ","))
+    } else {
+      formatted <- ifelse(is.na(column), "—", as.character(column))
+    }
+    html_escape(formatted)
   })
+
+  rows <- vapply(
+    seq_len(nrow(data)),
+    function(i) {
+      values <- vapply(cells, function(column) column[[i]], character(1))
+      paste0("<tr>", paste0("<td>", values, "</td>", collapse = ""), "</tr>")
+    },
+    character(1)
+  )
 
   paste0(
     "<table><thead><tr>", header, "</tr></thead><tbody>",
@@ -484,7 +692,8 @@ plot_user_anomalies <- function(anomalies, path) {
     return(invisible(NULL))
   }
 
-  labels <- paste(anomalies$day, anomalies$anomaly_type, sep = "\n")
+  anomalies <- head(anomalies, 12)
+  labels <- paste(anomalies$household_id, anomalies$day, sep = "\n")
   colors <- ifelse(anomalies$anomaly_type == "high_spike", "#ef4444", "#2563eb")
   bars <- barplot(
     anomalies$grid_import_kwh,
@@ -498,7 +707,11 @@ plot_user_anomalies <- function(anomalies, path) {
   text(
     bars,
     anomalies$grid_import_kwh,
-    labels = paste0(anomalies$pct_of_average, "%"),
+    labels = ifelse(
+      is.na(anomalies$modified_z),
+      paste0(anomalies$pct_of_average, "%"),
+      paste0("z ", sprintf("%.1f", anomalies$modified_z))
+    ),
     pos = 3,
     cex = 0.8
   )
@@ -548,8 +761,47 @@ write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies,
   } else {
     sum(monthly$estimated_bill, na.rm = TRUE)
   }
-  highest_month <- monthly[order(monthly$grid_import_kwh, decreasing = TRUE), ][1, ]
-  top_group <- groups[order(groups$grid_import_kwh, decreasing = TRUE), ][1, ]
+  highest_month <- top_row(monthly, "grid_import_kwh")
+  top_group <- top_row(groups, "grid_import_kwh")
+  signals <- c(
+    if (!is.null(highest_month)) paste0(
+      "<li>Highest grid import month: ", html_escape(highest_month$month), " at ",
+      number(highest_month$grid_import_kwh, 1), " kWh.</li>"
+    ),
+    if (!is.null(top_group)) paste0(
+      "<li>Top grid import group: ", html_escape(top_group$neighbourhood), " at ",
+      number(top_group$grid_import_kwh, 1), " kWh.</li>"
+    ),
+    paste0("<li>Solar exports equal ", number(quality$solar_export_pct, 1), "% of recorded consumption.</li>"),
+    paste0("<li>Peak usage is ", number(quality$peak_share_pct, 1), "% of recorded consumption.</li>")
+  )
+  notices <- character(0)
+  if (!is.null(quality$tier_source) && identical(as.character(quality$tier_source), "estimated")) {
+    notices <- c(notices, paste0(
+      "<p class=\"quality-callout\">This file has a single total column, so peak/shoulder/off-peak ",
+      "are modelled at 44/34/22%. Peak share, load mix and peak-shifting advice inherit that assumption.</p>"
+    ))
+  }
+  if (COERCION_LOG$unreadable > 0) {
+    notices <- c(notices, paste0(
+      "<p class=\"quality-callout\">", COERCION_LOG$unreadable,
+      " value(s) could not be read as numbers and were treated as 0.</p>"
+    ))
+  }
+  anomaly_view <- anomalies
+  if (nrow(anomaly_view) > 0) {
+    anomaly_view <- data.frame(
+      day = anomaly_view$day,
+      household = anomaly_view$household_id,
+      grid_kwh = round(anomaly_view$grid_import_kwh, 1),
+      baseline_kwh = round(anomaly_view$baseline_kwh, 1),
+      pct_of_baseline = anomaly_view$pct_of_average,
+      method = anomaly_view$method,
+      modified_z = round(anomaly_view$modified_z, 2),
+      type = anomaly_view$anomaly_type,
+      stringsAsFactors = FALSE
+    )
+  }
 
   html <- paste0(
     "<!doctype html>
@@ -562,7 +814,7 @@ write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies,
 </head>
 <body>
 <header>
-<p class=\"eyebrow\">GridScope 0.3.0</p>
+<p class=\"eyebrow\">GridScope ", VERSION, "</p>
 <h1>", APP_TITLE, "</h1>
 <p class=\"lede\">Personal energy analysis generated from your uploaded CSV. Use the studio to filter households, rebill a tariff, compare another file, and export the current table.</p>
 </header>
@@ -582,11 +834,9 @@ write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies,
 <section class=\"report-section\">
 <h2>Key Signals</h2>
 <ul class=\"insight-list\">
-<li>Highest grid import month: ", html_escape(highest_month$month), " at ", number(highest_month$grid_import_kwh, 1), " kWh.</li>
-<li>Top grid import group: ", html_escape(top_group$neighbourhood), " at ", number(top_group$grid_import_kwh, 1), " kWh.</li>
-<li>Solar exports equal ", number(quality$solar_export_pct, 1), "% of recorded consumption.</li>
-<li>Peak usage is ", number(quality$peak_share_pct, 1), "% of recorded consumption.</li>
+", paste(signals, collapse = "\n"), "
 </ul>
+", paste(notices, collapse = "\n"), "
 </section>
 
 <section class=\"report-section\">
@@ -615,9 +865,10 @@ write_uploaded_report <- function(monthly, groups, load_mix, quality, anomalies,
 
 <section class=\"report-section\">
 <h2>Unusual Days</h2>
+<p class=\"chart-note\">Each household-day against the same household within &plusmn;15 days: modified z-score from the median and MAD (|z| &ge; 3.5), or a 1.5&times; / 0.5&times; ratio rule for short or flat histories.</p>
 <div class=\"figure\"><img src=\"figures/user_anomalies.png\" alt=\"Unusual usage days chart\"></div>
 ",
-    data_frame_to_html(anomalies, 10),
+    if (nrow(anomaly_view) == 0) "<p>No unusual usage days detected.</p>" else data_frame_to_html(anomaly_view, 15),
     "
 </section>
 
@@ -642,9 +893,12 @@ write_report <- function(monthly, efficiency, plans, load_mix, path, root) {
   total_import <- sum(monthly$grid_import_kwh)
   total_solar <- sum(monthly$solar_export_kwh)
   total_bill <- sum(monthly$estimated_bill)
-  best_household <- efficiency[order(efficiency$efficiency_rank), ][1, ]
-  best_plan <- plans[order(plans$avg_daily_bill), ][1, ]
-  top_neighbourhood <- load_mix[order(load_mix$estimated_bill, decreasing = TRUE), ][1, ]
+  best_household <- top_row(efficiency, "efficiency_rank", decreasing = FALSE)
+  best_plan <- top_row(plans, "avg_daily_bill", decreasing = FALSE)
+  top_neighbourhood <- top_row(load_mix, "estimated_bill")
+  if (is.null(best_household) || is.null(best_plan) || is.null(top_neighbourhood)) {
+    stop("The demo queries returned no rows; check sql/seed.sql.", call. = FALSE)
+  }
 
   html <- paste0(
     "<!doctype html>
@@ -657,7 +911,7 @@ write_report <- function(monthly, efficiency, plans, load_mix, path, root) {
 </head>
 <body>
 <header>
-<p class=\"eyebrow\">GridScope 0.3.0</p>
+<p class=\"eyebrow\">GridScope ", VERSION, "</p>
 <h1>", APP_TITLE, "</h1>
 <p class=\"lede\">Upload energy data, review clear charts, and spot cost and demand patterns without turning the page into a spreadsheet cave.</p>
 </header>
@@ -715,6 +969,13 @@ run_custom_analysis <- function(root, sqlite, input_path, output_path) {
     file.path(root, input_path)
   }
   input_path <- normalizePath(input_path, mustWork = TRUE)
+  if (is_nem12_file(input_path)) {
+    stop(
+      "This looks like a NEM12 interval file. The R pipeline reads column CSVs; ",
+      "analyse NEM12 with: python3 -m gridscope ", input_path,
+      call. = FALSE
+    )
+  }
 
   output_path <- if (is.null(output_path)) {
     file.path(root, "output", "custom-report.html")
@@ -746,6 +1007,7 @@ run_custom_analysis <- function(root, sqlite, input_path, output_path) {
 
   execute_sql_file(sqlite, db_path, file.path(root, "sql", "user_upload_schema.sql"))
   import_csv_to_table(sqlite, db_path, normalised_csv, "user_readings")
+  execute_sql_file(sqlite, db_path, file.path(root, "sql", "user_upload_finalise.sql"))
 
   query_files <- c(
     user_monthly_usage = file.path(root, "sql", "queries", "user_monthly_usage.sql"),
@@ -759,7 +1021,12 @@ run_custom_analysis <- function(root, sqlite, input_path, output_path) {
   tables <- lapply(query_files, function(path) query_to_frame(sqlite, db_path, path))
 
   for (name in names(tables)) {
-    write_table(tables[[name]], file.path(table_dir, paste0(name, ".csv")))
+    table <- tables[[name]]
+    if (name == "user_anomalies" && nrow(table) > 0) {
+      table$baseline_kwh <- round(table$baseline_kwh, 3)
+      table$modified_z <- round(table$modified_z, 3)
+    }
+    write_table(table, file.path(table_dir, paste0(name, ".csv")))
   }
 
   plot_monthly_usage(tables$user_monthly_usage, file.path(figure_dir, "user_monthly_usage.png"))
@@ -842,4 +1109,7 @@ main <- function() {
   message("Done. Open output/report.html to view the report.")
 }
 
-main()
+# Run only as a script, so tests can source() the helpers without side effects.
+if (sys.nframe() == 0L) {
+  main()
+}

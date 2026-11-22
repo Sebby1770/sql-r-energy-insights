@@ -8,52 +8,129 @@
 </head>
 <body>
 <header>
-<p class="eyebrow">GridScope 0.3.0</p>
+<p class="eyebrow">GridScope 0.9.0</p>
 <h1>GridScope Studio</h1>
 <p class="lede">Upload energy data, review clear charts, and spot cost and demand patterns without turning the page into a spreadsheet cave.</p>
 </header>
 <main>
 <section class="studio-panel" id="upload-studio">
-<div>
-<p class="eyebrow">Personal workspace</p>
-<h2>Analyse Your CSV</h2>
-<p>Use a billing or meter file with a date column and kWh columns. Filter by household, edit the tariff to rebill live, compare a second file, and export the current analysis table.</p>
+<ol class="onboarding-strip" id="onboarding-strip">
+<li><span>01</span> Intake the CSV</li>
+<li><span>02</span> Set the tariff</li>
+<li><span>03</span> Read the recoverable $</li>
+</ol>
+<div class="deck-copy">
+<p class="bay">Bay 01 · Intake</p>
+<h2>Drop the meter tape.</h2>
+<p>A billing CSV with a date column and kWh columns, or a NEM12 interval file from your distributor. Filter by household, rebill live, compare a second file, export the table. Drop one file to analyse it, or two to compare.</p>
 </div>
 <div class="upload-controls">
-<label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
-<button id="load-sample" type="button">Try Sample</button>
-<label class="file-picker file-picker-secondary" for="compare-csv">Compare CSV<input id="compare-csv" type="file" accept=".csv,text/csv"></label>
-<button id="compare-sample" type="button">Compare to sample</button>
-<button id="export-analysis" type="button" disabled>Export JSON</button>
-<button id="export-csv" type="button" disabled>Export CSV</button>
-<button id="theme-toggle" type="button" aria-pressed="false">Dark mode</button>
-<a class="template-link" href="../data/sample_energy_upload.csv">Template</a>
+  <div class="cluster">
+    <label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,.txt,.dat,text/csv,text/plain"></label>
+    <button id="load-sample" type="button">Load sample</button>
+    <button id="load-nem12-sample" type="button" data-href="../data/sample_nem12.csv">Load NEM12 sample</button>
+  </div>
+  <div class="cluster">
+    <label class="file-picker file-picker-secondary" for="compare-csv">Compare CSV<input id="compare-csv" type="file" accept=".csv,.txt,.dat,text/csv,text/plain"></label>
+    <button id="compare-sample" type="button">Compare to sample</button>
+  </div>
+  <div class="cluster">
+    <button id="export-analysis" type="button" disabled>Export JSON</button>
+    <button id="export-csv" type="button" disabled>Export CSV</button>
+    <button id="copy-summary" type="button" disabled>Copy summary</button>
+    <button id="print-bill" type="button" disabled>Print bill</button>
+  </div>
+  <div class="cluster">
+    <button id="theme-toggle" data-theme-toggle type="button" aria-pressed="false">Daylight</button>
+    <a class="template-link" href="../data/sample_energy_upload.csv">Template</a>
+  </div>
 </div>
-<div class="status" id="upload-status">Waiting for data.</div>
+<div class="status" id="upload-status" role="status" aria-live="polite">Waiting for data.</div>
+<p class="source-badge" id="source-badge" aria-live="polite" hidden></p>
 </section>
 
 <section class="report-section" id="personal-results" hidden>
-<h2>Personal Analysis</h2>
+<p class="bay">Bay 02 · Receipt</p>
+<h2>The bill, rewritten</h2>
+<div class="hero-savings" id="savings-hero">
+  <div class="gauge" aria-hidden="true"></div>
+  <div>
+    <p class="eyebrow">Recoverable on this usage</p>
+    <strong id="savings-hero-amount">$0.00</strong>
+    <p class="chart-note" id="savings-hero-note">Load a CSV to see quantified opportunities.</p>
+  </div>
+</div>
+<div class="what-if-tools">
+<div class="peak-shift-tool" id="peak-shift-wrap">
+<label for="peak-shift">If I shift <span id="peak-shift-label">10%</span> of peak to off-peak</label>
+<input id="peak-shift" type="range" min="0" max="30" value="10" step="1">
+<p class="chart-note" id="peak-shift-saving">Move the slider to estimate savings on this tariff.</p>
+</div>
+<div class="peak-shift-tool" id="solar-shift-wrap">
+<label for="solar-shift">If I self-consume <span id="solar-shift-label">50%</span> of solar export</label>
+<input id="solar-shift" type="range" min="0" max="100" value="50" step="1">
+<p class="chart-note" id="solar-shift-saving">Move the slider to estimate savings on this tariff.</p>
+</div>
+<div class="peak-shift-tool battery-tool" id="battery-wrap">
+<label for="battery-capacity">If I add a <span id="battery-capacity-label">10 kWh</span> home battery</label>
+<input id="battery-capacity" type="range" min="0" max="20" value="10" step="0.5" aria-describedby="battery-note">
+<label class="battery-cost" for="battery-cost">Installed cost per battery (AUD)
+<input id="battery-cost" type="number" inputmode="decimal" min="0" step="100" placeholder="your quote" aria-describedby="battery-note"></label>
+<p class="chart-note" id="battery-note">Charges only from solar you would have exported; 90% round-trip efficiency. Add a cost for a payback estimate.</p>
+<p class="chart-note battery-saving" id="battery-saving" aria-live="polite">Move the slider to size a battery on this usage.</p>
+</div>
+</div>
+<div class="plan-cards" id="plan-cards"></div>
+<p class="plan-switch-note" id="plan-switch-note" hidden></p>
+
+<p class="bay">Bay 03 · Console</p>
 <div class="studio-tools">
 <div class="tool-block" id="household-filter-wrap" hidden>
 <label for="household-filter">Household</label>
 <select id="household-filter"></select>
 </div>
+<div class="tool-block">
+<label for="date-order">Date order</label>
+<select id="date-order">
+<option value="dmy" selected>DMY (AU)</option>
+<option value="mdy">MDY (US)</option>
+<option value="auto">Auto</option>
+</select>
+</div>
+<label class="tool-block tou-toggle" for="tou-toggle">
+<input id="tou-toggle" type="checkbox">
+Apply NSW-style TOU from hour
+</label>
+<label class="tool-block tou-toggle" for="dedupe-toggle">
+<input id="dedupe-toggle" type="checkbox">
+Merge duplicate household+day rows
+</label>
+<p class="tou-banner" id="tou-note" hidden></p>
 <fieldset class="tool-block tariff-editor">
-<legend>Tariff (AUD/kWh)</legend>
+<legend>Tariff (AUD)</legend>
 <label>Peak <input id="tariff-peak" type="number" inputmode="decimal" min="0" step="0.01" value="0.40"></label>
 <label>Shoulder <input id="tariff-shoulder" type="number" inputmode="decimal" min="0" step="0.01" value="0.28"></label>
 <label>Off-peak <input id="tariff-offpeak" type="number" inputmode="decimal" min="0" step="0.01" value="0.18"></label>
 <label>Export credit <input id="tariff-export" type="number" inputmode="decimal" min="0" step="0.01" value="0.08"></label>
+<label>Daily supply <input id="tariff-supply" type="number" inputmode="decimal" min="0" step="0.01" value="1.10"></label>
+<label>GST rate <input id="tariff-gst" type="number" inputmode="decimal" min="0" step="0.01" value="0.10"></label>
 </fieldset>
 </div>
+
+<p class="bay">Bay 04 · Instruments</p>
 <div class="metrics" id="personal-metrics"></div>
+<div class="metrics" id="weekend-metrics"></div>
+<p class="coverage-callout" id="coverage-callout" hidden></p>
+<p class="quality-callout" id="quality-callout" hidden></p>
 <div class="metrics compare-metrics" id="compare-metrics" hidden></div>
+<div id="compare-monthly" hidden></div>
 <h3>Signals</h3>
 <ul class="insight-list" id="personal-insights"></ul>
+
+<p class="bay">Bay 05 · Traces</p>
 <div class="results-grid">
 <div>
-<h3>Monthly Demand</h3>
+<h3>Monthly demand</h3>
 <div class="chart" id="monthly-chart"></div>
 </div>
 <div>
@@ -61,19 +138,24 @@
 <div class="chart" id="cost-chart"></div>
 </div>
 </div>
-<h3>Load Mix</h3>
+<h3>Daily trace</h3>
+<p class="chart-note" id="daily-note">Grid import per day with solar export. Dots mark unusual days.</p>
+<div class="chart daily-chart" id="daily-chart"></div>
+<h3>Load mix</h3>
 <div class="chart" id="mix-chart"></div>
-<h3>Weekday Heatmap</h3>
+<h3>Weekday heatmap</h3>
 <p class="chart-note" id="heatmap-note">Grid import by weekday and month. Hour buckets are used when a timestamp hour is present.</p>
 <div class="chart" id="heatmap-chart"></div>
-<h3>Monthly Table</h3>
+
+<p class="bay">Bay 06 · Ledger</p>
+<h3>Monthly table</h3>
 <div id="monthly-table"></div>
-<h3>Group Table</h3>
+<h3>Group table</h3>
 <div id="group-table"></div>
-<h3>Unusual Days</h3>
+<h3>Unusual days</h3>
 <div class="chart" id="anomaly-chart"></div>
 <div id="anomaly-table"></div>
-<h3>Savings Opportunities</h3>
+<h3>Savings opportunities</h3>
 <ul class="insight-list" id="recommendation-list"></ul>
 </section>
 <h2 class="demo-heading">Demo Portfolio</h2>
@@ -87,44 +169,44 @@
 <h2>Monthly Demand</h2>
 <p>Grid imports rise in hotter and colder months, while solar export peaks through the modeled summer profile.</p>
 <div class="figure"><img src="figures/monthly_usage.png" alt="Monthly grid import and solar export chart"></div>
-<table><thead><tr><th>month</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th><th>month_over_month_import_kwh</th></tr></thead><tbody><tr><td>2025-01</td><td>4181.9</td><td>4173.2</td><td>2125.69</td><td>NA</td></tr>
-<tr><td>2025-02</td><td>3814.8</td><td>3769.2</td><td>1932.64</td><td> -367.2</td></tr>
-<tr><td>2025-03</td><td>4382.0</td><td>2693.9</td><td>2056.41</td><td>  567.2</td></tr>
-<tr><td>2025-04</td><td>4214.4</td><td>2606.6</td><td>1982.20</td><td> -167.6</td></tr>
-<tr><td>2025-05</td><td>4359.7</td><td>2693.3</td><td>2049.69</td><td>  145.3</td></tr>
-<tr><td>2025-06</td><td>6964.3</td><td>1381.9</td><td>2708.92</td><td> 2604.6</td></tr>
-<tr><td>2025-07</td><td>7156.4</td><td>1427.6</td><td>2787.43</td><td>  192.0</td></tr>
-<tr><td>2025-08</td><td>7213.5</td><td>1428.0</td><td>2804.34</td><td>   57.1</td></tr>
-<tr><td>2025-09</td><td>3829.6</td><td>3256.3</td><td>1910.56</td><td>-3383.9</td></tr>
-<tr><td>2025-10</td><td>3956.0</td><td>3365.3</td><td>1973.81</td><td>  126.4</td></tr>
-<tr><td>2025-11</td><td>3860.3</td><td>3256.3</td><td>1919.87</td><td>  -95.7</td></tr>
-<tr><td>2025-12</td><td>4177.9</td><td>4173.1</td><td>2124.23</td><td>  317.6</td></tr></tbody></table>
+<table><thead><tr><th>month</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th><th>month_over_month_import_kwh</th></tr></thead><tbody><tr><td>2025-01</td><td>4,181.9</td><td>4,173.2</td><td>2,125.69</td><td>—</td></tr>
+<tr><td>2025-02</td><td>3,814.8</td><td>3,769.2</td><td>1,932.64</td><td>-367.2</td></tr>
+<tr><td>2025-03</td><td>4,382.0</td><td>2,693.9</td><td>2,056.41</td><td>567.2</td></tr>
+<tr><td>2025-04</td><td>4,214.4</td><td>2,606.6</td><td>1,982.20</td><td>-167.6</td></tr>
+<tr><td>2025-05</td><td>4,359.7</td><td>2,693.3</td><td>2,049.69</td><td>145.3</td></tr>
+<tr><td>2025-06</td><td>6,964.3</td><td>1,381.9</td><td>2,708.92</td><td>2,604.6</td></tr>
+<tr><td>2025-07</td><td>7,156.4</td><td>1,427.6</td><td>2,787.43</td><td>192.0</td></tr>
+<tr><td>2025-08</td><td>7,213.5</td><td>1,428.0</td><td>2,804.34</td><td>57.1</td></tr>
+<tr><td>2025-09</td><td>3,829.6</td><td>3,256.3</td><td>1,910.56</td><td>-3,383.9</td></tr>
+<tr><td>2025-10</td><td>3,956.0</td><td>3,365.3</td><td>1,973.81</td><td>126.4</td></tr>
+<tr><td>2025-11</td><td>3,860.3</td><td>3,256.3</td><td>1,919.87</td><td>-95.7</td></tr>
+<tr><td>2025-12</td><td>4,177.9</td><td>4,173.1</td><td>2,124.23</td><td>317.6</td></tr></tbody></table>
 <h2>Plan Comparison</h2>
 <p>Flex Saver has the lowest average daily bill in this synthetic portfolio. The comparison also tracks peak-share exposure and solar export share by plan.</p>
 <div class="figure"><img src="figures/plan_comparison.png" alt="Average daily bill by plan chart"></div>
-<table><thead><tr><th>plan_name</th><th>households</th><th>avg_daily_bill</th><th>annual_revenue</th><th>peak_share_pct</th><th>solar_export_share_pct</th></tr></thead><tbody><tr><td>Flex Saver</td><td>4</td><td>3.97</td><td> 5790.31</td><td>36.3</td><td> 6.0</td></tr>
-<tr><td>Flat Comfort</td><td>4</td><td>4.23</td><td> 6170.68</td><td>36.7</td><td>30.5</td></tr>
-<tr><td>Solar Plus</td><td>8</td><td>4.94</td><td>14414.80</td><td>36.2</td><td>65.7</td></tr></tbody></table>
+<table><thead><tr><th>plan_name</th><th>households</th><th>avg_daily_bill</th><th>annual_revenue</th><th>peak_share_pct</th><th>solar_export_share_pct</th></tr></thead><tbody><tr><td>Flex Saver</td><td>4</td><td>3.97</td><td>5,790.31</td><td>36.3</td><td>6.0</td></tr>
+<tr><td>Flat Comfort</td><td>4</td><td>4.23</td><td>6,170.68</td><td>36.7</td><td>30.5</td></tr>
+<tr><td>Solar Plus</td><td>8</td><td>4.94</td><td>14,414.80</td><td>36.2</td><td>65.7</td></tr></tbody></table>
 <h2>Neighbourhood Load Mix</h2>
 <p>Harbourview has the highest estimated annual bill in the model, making it a useful candidate for demand response or solar export programs.</p>
 <div class="figure"><img src="figures/neighbourhood_load_mix.png" alt="Neighbourhood load mix chart"></div>
-<table><thead><tr><th>neighbourhood</th><th>peak_kwh</th><th>shoulder_kwh</th><th>offpeak_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th></tr></thead><tbody><tr><td>East Park</td><td>6484.3</td><td>6645.0</td><td>4618.6</td><td>8943.9</td><td>6515.52</td></tr>
-<tr><td>Westfield</td><td>6992.3</td><td>7258.1</td><td>5029.5</td><td>9186.4</td><td>6917.06</td></tr>
-<tr><td>Northbank</td><td>5628.6</td><td>5774.6</td><td>4005.1</td><td>6666.4</td><td>5882.46</td></tr>
-<tr><td>Harbourview</td><td>7247.3</td><td>7565.3</td><td>5236.5</td><td>9428.0</td><td>7060.75</td></tr></tbody></table>
+<table><thead><tr><th>neighbourhood</th><th>peak_kwh</th><th>shoulder_kwh</th><th>offpeak_kwh</th><th>solar_export_kwh</th><th>estimated_bill</th></tr></thead><tbody><tr><td>East Park</td><td>6,484.3</td><td>6,645.0</td><td>4,618.6</td><td>8,943.9</td><td>6,515.52</td></tr>
+<tr><td>Westfield</td><td>6,992.3</td><td>7,258.1</td><td>5,029.5</td><td>9,186.4</td><td>6,917.06</td></tr>
+<tr><td>Northbank</td><td>5,628.6</td><td>5,774.6</td><td>4,005.1</td><td>6,666.4</td><td>5,882.46</td></tr>
+<tr><td>Harbourview</td><td>7,247.3</td><td>7,565.3</td><td>5,236.5</td><td>9,428.0</td><td>7,060.75</td></tr></tbody></table>
 <h2>Household Efficiency</h2>
 <p>The top-ranked household is #12 in Harbourview, with 1,173.2 kWh per resident.</p>
 <div class="figure"><img src="figures/household_efficiency.png" alt="Household efficiency scatter plot"></div>
-<table><thead><tr><th>efficiency_rank</th><th>household_id</th><th>neighbourhood</th><th>home_type</th><th>residents</th><th>solar_kw</th><th>consumed_kwh</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>kwh_per_resident</th><th>annual_bill</th><th>annual_bill_per_resident</th><th>insight_segment</th></tr></thead><tbody><tr><td> 1</td><td>12</td><td>Harbourview</td><td>detached</td><td>6</td><td>7.2</td><td>7039.2</td><td>4916.6</td><td>5053.9</td><td>1173.2</td><td>2152.37</td><td>358.73</td><td>solar leader</td></tr>
-<tr><td> 2</td><td>16</td><td>Westfield</td><td>detached</td><td>5</td><td>6.0</td><td>6272.0</td><td>4502.4</td><td>4213.1</td><td>1254.4</td><td>1985.73</td><td>397.15</td><td>solar leader</td></tr>
-<tr><td> 3</td><td> 7</td><td>East Park</td><td>detached</td><td>5</td><td>6.4</td><td>6272.7</td><td>4360.9</td><td>4552.0</td><td>1254.5</td><td>1965.52</td><td>393.10</td><td>solar leader</td></tr>
-<tr><td> 4</td><td>10</td><td>Harbourview</td><td>townhouse</td><td>4</td><td>1.8</td><td>5103.2</td><td>4753.7</td><td> 832.2</td><td>1275.8</td><td>1917.71</td><td>479.43</td><td>lean user</td></tr>
-<tr><td> 5</td><td> 4</td><td>Northbank</td><td>detached</td><td>4</td><td>5.8</td><td>5504.7</td><td>3732.7</td><td>4218.9</td><td>1376.2</td><td>1768.19</td><td>442.05</td><td>solar leader</td></tr>
-<tr><td> 6</td><td>11</td><td>Harbourview</td><td>detached</td><td>4</td><td>5.0</td><td>5505.4</td><td>4017.9</td><td>3541.8</td><td>1376.4</td><td>1809.18</td><td>452.30</td><td>solar leader</td></tr>
-<tr><td> 7</td><td>15</td><td>Westfield</td><td>detached</td><td>4</td><td>4.8</td><td>5505.4</td><td>4089.0</td><td>3372.5</td><td>1376.4</td><td>1819.14</td><td>454.79</td><td>lean user</td></tr>
-<tr><td> 8</td><td> 3</td><td>Northbank</td><td>townhouse</td><td>3</td><td>3.5</td><td>4334.9</td><td>3307.1</td><td>2447.4</td><td>1445.0</td><td>1537.94</td><td>512.65</td><td>steady user</td></tr>
-<tr><td> 9</td><td>14</td><td>Westfield</td><td>townhouse</td><td>3</td><td>2.5</td><td>4335.6</td><td>3663.3</td><td>1600.8</td><td>1445.2</td><td>1743.24</td><td>581.08</td><td>steady user</td></tr>
-<tr><td>10</td><td> 8</td><td>East Park</td><td>detached</td><td>3</td><td>4.0</td><td>4738.5</td><td>3532.8</td><td>2870.6</td><td>1579.5</td><td>1803.89</td><td>601.30</td><td>steady user</td></tr></tbody></table>
+<table><thead><tr><th>efficiency_rank</th><th>household_id</th><th>neighbourhood</th><th>home_type</th><th>residents</th><th>solar_kw</th><th>consumed_kwh</th><th>grid_import_kwh</th><th>solar_export_kwh</th><th>kwh_per_resident</th><th>annual_bill</th><th>annual_bill_per_resident</th><th>insight_segment</th></tr></thead><tbody><tr><td>1</td><td>12</td><td>Harbourview</td><td>detached</td><td>6</td><td>7.2</td><td>7,039.2</td><td>4,916.6</td><td>5,053.9</td><td>1,173.2</td><td>2,152.37</td><td>358.73</td><td>solar leader</td></tr>
+<tr><td>2</td><td>16</td><td>Westfield</td><td>detached</td><td>5</td><td>6.0</td><td>6,272.0</td><td>4,502.4</td><td>4,213.1</td><td>1,254.4</td><td>1,985.73</td><td>397.15</td><td>solar leader</td></tr>
+<tr><td>3</td><td>7</td><td>East Park</td><td>detached</td><td>5</td><td>6.4</td><td>6,272.7</td><td>4,360.9</td><td>4,552.0</td><td>1,254.5</td><td>1,965.52</td><td>393.10</td><td>solar leader</td></tr>
+<tr><td>4</td><td>10</td><td>Harbourview</td><td>townhouse</td><td>4</td><td>1.8</td><td>5,103.2</td><td>4,753.7</td><td>832.2</td><td>1,275.8</td><td>1,917.71</td><td>479.43</td><td>lean user</td></tr>
+<tr><td>5</td><td>4</td><td>Northbank</td><td>detached</td><td>4</td><td>5.8</td><td>5,504.7</td><td>3,732.7</td><td>4,218.9</td><td>1,376.2</td><td>1,768.19</td><td>442.05</td><td>solar leader</td></tr>
+<tr><td>6</td><td>11</td><td>Harbourview</td><td>detached</td><td>4</td><td>5.0</td><td>5,505.4</td><td>4,017.9</td><td>3,541.8</td><td>1,376.4</td><td>1,809.18</td><td>452.30</td><td>solar leader</td></tr>
+<tr><td>7</td><td>15</td><td>Westfield</td><td>detached</td><td>4</td><td>4.8</td><td>5,505.4</td><td>4,089.0</td><td>3,372.5</td><td>1,376.4</td><td>1,819.14</td><td>454.79</td><td>lean user</td></tr>
+<tr><td>8</td><td>3</td><td>Northbank</td><td>townhouse</td><td>3</td><td>3.5</td><td>4,334.9</td><td>3,307.1</td><td>2,447.4</td><td>1,445.0</td><td>1,537.94</td><td>512.65</td><td>steady user</td></tr>
+<tr><td>9</td><td>14</td><td>Westfield</td><td>townhouse</td><td>3</td><td>2.5</td><td>4,335.6</td><td>3,663.3</td><td>1,600.8</td><td>1,445.2</td><td>1,743.24</td><td>581.08</td><td>steady user</td></tr>
+<tr><td>10</td><td>8</td><td>East Park</td><td>detached</td><td>3</td><td>4.0</td><td>4,738.5</td><td>3,532.8</td><td>2,870.6</td><td>1,579.5</td><td>1,803.89</td><td>601.30</td><td>steady user</td></tr></tbody></table>
 </main>
 <script src="../assets/analysis.js"></script>
 <script src="../assets/studio.js"></script>
