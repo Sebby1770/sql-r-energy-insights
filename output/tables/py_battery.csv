@@ -1,0 +1,2 @@
+capacity_kwh,efficiency,days,batteries,charged_kwh,delivered_kwh,cycles,baseline_bill,battery_bill,saving_aud,annual_saving_aud,cost_aud,total_cost_aud,payback_years
+10.0,0.9,365,4,8044.939,7240.445,201.123,7841.518,5505.106,2336.412,2336.412,,,

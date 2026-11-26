@@ -1,5 +1,4 @@
 group,records,households,grid_kwh,solar_kwh,consumed_kwh,tariff_bill
-Northbank,5,2,82.4,15.5,87.8,34.53
-East Park,5,2,73.3,21.9,83.4,32.21
-Westfield,4,2,67.8,7.3,69.9,27.67
-Harbourview,4,2,49.2,15.6,54.6,21.9
+Northbank,730,2,9199.43,4937.22,11048.75,3691.66
+Harbourview,365,1,8292.99,2161.75,9216.12,2899.41
+East Park,365,1,4105.97,3123.58,6123.83,2133.75

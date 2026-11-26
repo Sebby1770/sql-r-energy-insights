@@ -1,3 +1,47 @@
+# GridScope 0.9 — Smart-meter release
+
+**From:** 0.8.0
+**To:** 0.9.0: NEM12 intake, a robust seasonal anomaly rule, a battery what-if with payback, plan switch saving, and a pipeline that runs again
+
+Python stays the source of truth. `assets/analysis.js` mirrors it, and a golden parity suite now proves the two copies match on every number. Runtime is still stdlib only.
+
+## Why
+
+By 0.8 the studio answered bill, plan and peak-shift questions for a hand-typed 18-row CSV. Real households have:
+
+1. **NEM12 files**, not tidy daily CSVs. Every Australian smart meter exports them, and they were explicitly out of scope until now.
+2. **Interval data**, which broke the per-row anomaly rule (it flagged hours) and duplicate detection (every hour looked like a duplicate day).
+3. **A battery question.** Payback on a quote is the most common "should I?" question after solar.
+4. **Noise and seasons.** The mean ±50% rule was dragged up by the spikes it hunted and flagged ordinary winters.
+
+## Decision log
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| NEM12 granularity | Roll intervals up to hourly rows | Keeps the row model; TOU windows are on hour boundaries |
+| NEM12 tiers | Always tier import by TOU windows (`tier_source: "interval"`) | The time of each kWh is known; the 44/34/22 split would be a fiction |
+| NEM12 quality | Count E/S/F (and V+400) as estimated, N/blank as missing | Surface it, never drop it, consistent with data_quality |
+| Anomaly unit | Household-day totals | Interval files would otherwise flag hours |
+| Anomaly baseline | Same household, ±15 days, median + MAD (modified z ≥ 3.5) | Robust to the spikes themselves and to seasons; standard Iglewicz–Hoaglin threshold |
+| Fallbacks | Ratio rule vs median for short/flat series; global median for < 4 days | Small files still get an answer, as in 0.4 |
+| Battery model | Per household, time-ordered, charge from export, discharge peak-first, losses on output, no kW limit | Honest at daily and hourly granularity; documented limits |
+| Payback | Cost per battery × households / annualised saving | "All households" means one battery each |
+| Plans | Score the current tariff too; quantified switch recommendation | "Cheapest plan" without "vs what I pay now" is half an answer |
+| Samples | Generated deterministically (stdlib RNG, Box–Muller, truncated noise) | Rich enough to demo anomalies and batteries; reproducible in CI |
+| Site markup | Built from `assets/studio-panel.html` | The Pages page was a hand-maintained duplicate that could drift |
+| R pipeline | Repair and port PR #2's still-valid fixes by hand; the same anomaly rule in SQL | PR #2 conflicts with 0.3–0.8; its fixes still matter |
+
+## Acceptance
+
+```
+python3 -m pytest -q          # engine, CLI, NEM12, battery, site, parity
+make samples-check
+make demo-py demo-nem12 site
+make test-r verify            # R + SQLite
+```
+
+---
+
 # GridScope 0.5 — Implementation Plan
 
 **From:** 0.4.1  

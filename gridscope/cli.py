@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from gridscope.analysis import (
+    DEFAULT_BATTERY,
     DEFAULT_TARIFF,
     VERSION,
     GridScopeError,
@@ -17,6 +18,9 @@ from gridscope.analysis import (
     filter_household,
     get_analysis,
     load_csv,
+    load_plans_file,
+    parse_energy_text_details,
+    read_text_file,
     serialise_analysis,
 )
 from gridscope.report import write_html_report, write_tables
@@ -25,9 +29,14 @@ from gridscope.report import write_html_report, write_tables
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python3 -m gridscope",
-        description="Analyse a household energy CSV without R.",
+        description=(
+            "Analyse a household energy CSV or a NEM12 smart-meter interval file "
+            "without R."
+        ),
     )
-    parser.add_argument("input", help="Path to a meter or billing CSV")
+    parser.add_argument(
+        "input", help="Path to a meter/billing CSV or a NEM12 file (detected automatically)"
+    )
     parser.add_argument("--html", help="Write a studio HTML report to this path")
     parser.add_argument("--json", dest="json_path", help="Write analysis JSON to this path")
     parser.add_argument(
@@ -74,26 +83,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compare Flex Saver / Solar Plus / Flat Comfort on this usage",
     )
     parser.add_argument(
+        "--plans-file",
+        help="JSON list of retailer offers to score instead of the three built-in plans",
+    )
+    parser.add_argument(
         "--dedupe",
         action="store_true",
-        help="Sum duplicate (household, day) rows before analysis",
+        help="Sum duplicate (household, day, hour) rows before analysis",
+    )
+    parser.add_argument(
+        "--battery-kwh",
+        type=float,
+        default=DEFAULT_BATTERY["capacity_kwh"],
+        help="Usable battery capacity for the battery what-if (default: 10)",
+    )
+    parser.add_argument(
+        "--battery-efficiency",
+        type=float,
+        default=DEFAULT_BATTERY["efficiency"],
+        help="Battery round-trip efficiency, 0-1 (default: 0.90)",
+    )
+    parser.add_argument(
+        "--battery-cost",
+        type=float,
+        default=None,
+        help="Installed battery cost in AUD; adds a payback estimate",
     )
     parser.add_argument("--version", action="version", version=f"GridScope {VERSION}")
     return parser
 
 
-def _read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        return path.read_text(encoding="latin-1")
-
-
-def _print_summary(analysis: dict, comparison: dict | None) -> None:
+def _print_summary(analysis: dict, comparison: dict | None, source: dict | None = None) -> None:
     totals = analysis["totals"]
     weekend = analysis.get("weekend") or {}
     quality = analysis.get("quality") or {}
     print(f"GridScope {VERSION}")
+    if source and source.get("format") == "nem12":
+        nmis = ", ".join(source.get("nmis") or []) or "unknown NMI"
+        print(f"Source      NEM12 · {source.get('interval_minutes')}-min intervals · {nmis}")
     print(f"Records     {totals['records']}")
     print(f"Days        {totals['days']}")
     print(f"Households  {totals['households']}")
@@ -120,9 +147,27 @@ def _print_summary(analysis: dict, comparison: dict | None) -> None:
         )
     if quality.get("duplicate_keys") or quality.get("negative_energy"):
         print(
-            f"Quality     {quality.get('duplicate_keys', 0)} duplicate day(s), "
+            f"Quality     {quality.get('duplicate_keys', 0)} duplicate reading(s), "
             f"{quality.get('negative_energy', 0)} negative row(s)"
         )
+    if quality.get("estimated_intervals") or quality.get("missing_intervals"):
+        print(
+            f"Intervals   {quality.get('estimated_intervals', 0)} estimated/substituted, "
+            f"{quality.get('missing_intervals', 0)} missing"
+        )
+    switch = float((analysis.get("plans") or {}).get("switch_saving") or 0)
+    if switch > 0.005:
+        print(f"Switch save ${switch:.2f}")
+    battery = analysis.get("what_if_battery") or {}
+    if battery.get("capacity_kwh"):
+        line = (
+            f"Battery     {battery['capacity_kwh']:.1f} kWh saves "
+            f"${float(battery.get('saving_aud') or 0):.2f} "
+            f"(${float(battery.get('annual_saving_aud') or 0):.0f}/yr annualised)"
+        )
+        if battery.get("payback_years") is not None:
+            line += f", payback {float(battery['payback_years']):.1f} yr"
+        print(line)
     if comparison is not None:
         print(f"Shared days {comparison['shared_days']}")
         print(f"Δ kWh       {comparison['delta_kwh']:.1f}")
@@ -160,7 +205,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         input_path = Path(args.input)
-        rows = load_csv(input_path, date_order=args.date_order)
+        source_text = read_text_file(input_path)
+        rows, source = parse_energy_text_details(source_text, date_order=args.date_order)
+        plans = load_plans_file(args.plans_file) if args.plans_file else None
         analysis = get_analysis(
             rows,
             tariff=tariff,
@@ -168,6 +215,12 @@ def main(argv: list[str] | None = None) -> int:
             tou=args.tou,
             date_order=args.date_order,
             dedupe=args.dedupe,
+            plans=plans,
+            battery={
+                "capacity_kwh": args.battery_kwh,
+                "efficiency": args.battery_efficiency,
+                "cost_aud": args.battery_cost,
+            },
         )
         comparison = None
         if args.compare:
@@ -193,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
             write_html_report(
                 analysis,
                 html_path,
-                source_csv=_read_text(input_path),
+                source_csv=source_text,
                 source_label=input_path.name,
                 compare=comparison,
                 tables_dir=tables_dir,
@@ -207,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.json_path:
             payload = serialise_analysis(analysis)
+            payload["source"] = {**(analysis.get("source") or {}), **source}
             if comparison is not None:
                 payload["compare"] = comparison
             json_path = Path(args.json_path)
@@ -214,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
             json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
             print(f"Wrote JSON: {json_path}")
 
-        _print_summary(analysis, comparison)
+        _print_summary(analysis, comparison, source)
         if args.plans:
             _print_plans(analysis.get("plans") or {})
 

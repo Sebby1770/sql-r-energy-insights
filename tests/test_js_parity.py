@@ -23,7 +23,7 @@ const GS = context.window.GridScope || context.GridScope;
 if (!GS) {
   throw new Error("GridScope was not attached to the VM context");
 }
-const text = fs.readFileSync("data/sample_energy_upload.csv", "utf8");
+const text = fs.readFileSync("tests/fixtures/legacy_sample.csv", "utf8");
 const rows = GS.parseEnergyCsv(text);
 const analysis = GS.getAnalysis(rows);
 const dmy = GS.parseEnergyCsv("date,grid_import_kwh\n01/02/2025,10\n", { dateOrder: "dmy" });
@@ -50,5 +50,5 @@ console.log(JSON.stringify({
     assert payload["records"] == 18
     assert payload["cheapest"] == "Solar Plus"
     assert payload["dmy"] == "2025-02-01"
-    py_totals = get_analysis(load_csv(ROOT / "data" / "sample_energy_upload.csv"))["totals"]
+    py_totals = get_analysis(load_csv(ROOT / "tests" / "fixtures" / "legacy_sample.csv"))["totals"]
     assert payload["peak_share"] == pytest.approx(py_totals["peak_share"])

@@ -16,3 +16,6 @@ data/user_*.csv
 # Local scratch files
 *.log
 tmp/
+
+# Built GitHub Pages site (python3 scripts/build_site.py)
+_site/

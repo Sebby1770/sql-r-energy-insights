@@ -7,15 +7,16 @@
 <div class="deck-copy">
 <p class="bay">Bay 01 · Intake</p>
 <h2>Drop the meter tape.</h2>
-<p>Use a billing or meter file with a date column and kWh columns. Filter by household, edit the tariff to rebill live, compare a second file, and export the current analysis table.</p>
+<p>A billing CSV with a date column and kWh columns, or a NEM12 interval file from your distributor. Filter by household, rebill live, compare a second file, export the table. Drop one file to analyse it, or two to compare.</p>
 </div>
 <div class="upload-controls">
   <div class="cluster">
-    <label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,text/csv"></label>
+    <label class="file-picker" for="energy-csv">Choose CSV<input id="energy-csv" type="file" accept=".csv,.txt,.dat,text/csv,text/plain"></label>
     <button id="load-sample" type="button">Load sample</button>
+    <button id="load-nem12-sample" type="button" data-href="{{NEM12_HREF}}">Load NEM12 sample</button>
   </div>
   <div class="cluster">
-    <label class="file-picker file-picker-secondary" for="compare-csv">Compare CSV<input id="compare-csv" type="file" accept=".csv,text/csv"></label>
+    <label class="file-picker file-picker-secondary" for="compare-csv">Compare CSV<input id="compare-csv" type="file" accept=".csv,.txt,.dat,text/csv,text/plain"></label>
     <button id="compare-sample" type="button">Compare to sample</button>
   </div>
   <div class="cluster">
@@ -29,7 +30,8 @@
     <a class="template-link" href="{{TEMPLATE_HREF}}">Template</a>
   </div>
 </div>
-<div class="status" id="upload-status">Waiting for data.</div>
+<div class="status" id="upload-status" role="status" aria-live="polite">Waiting for data.</div>
+<p class="source-badge" id="source-badge" aria-live="polite" hidden></p>
 </section>
 
 <section class="report-section" id="personal-results" hidden>
@@ -54,8 +56,17 @@
 <input id="solar-shift" type="range" min="0" max="100" value="50" step="1">
 <p class="chart-note" id="solar-shift-saving">Move the slider to estimate savings on this tariff.</p>
 </div>
+<div class="peak-shift-tool battery-tool" id="battery-wrap">
+<label for="battery-capacity">If I add a <span id="battery-capacity-label">10 kWh</span> home battery</label>
+<input id="battery-capacity" type="range" min="0" max="20" value="10" step="0.5" aria-describedby="battery-note">
+<label class="battery-cost" for="battery-cost">Installed cost per battery (AUD)
+<input id="battery-cost" type="number" inputmode="decimal" min="0" step="100" placeholder="your quote" aria-describedby="battery-note"></label>
+<p class="chart-note" id="battery-note">Charges only from solar you would have exported; 90% round-trip efficiency. Add a cost for a payback estimate.</p>
+<p class="chart-note battery-saving" id="battery-saving" aria-live="polite">Move the slider to size a battery on this usage.</p>
+</div>
 </div>
 <div class="plan-cards" id="plan-cards"></div>
+<p class="plan-switch-note" id="plan-switch-note" hidden></p>
 
 <p class="bay">Bay 03 · Console</p>
 <div class="studio-tools">
@@ -112,6 +123,9 @@ Merge duplicate household+day rows
 <div class="chart" id="cost-chart"></div>
 </div>
 </div>
+<h3>Daily trace</h3>
+<p class="chart-note" id="daily-note">Grid import per day with solar export. Dots mark unusual days.</p>
+<div class="chart daily-chart" id="daily-chart"></div>
 <h3>Load mix</h3>
 <div class="chart" id="mix-chart"></div>
 <h3>Weekday heatmap</h3>

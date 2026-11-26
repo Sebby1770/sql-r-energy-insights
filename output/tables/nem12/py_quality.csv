@@ -1,0 +1,2 @@
+records,days,households,grid,solar,consumed,peak,shoulder,offpeak,peak_share,solar_share,bill,tariff_bill,cost_per_kwh,tariff_bill_ex_gst,supply_charge,gst_amount,first_day,last_day
+8760,365,1,3093.15,7176.688,3093.15,810.075,514.748,1768.327,26.1893215653945,232.01875111132665,,675.205586,0.21829060536993034,613.82326,401.50000000000006,61.382326000000006,2025-01-01,2025-12-31

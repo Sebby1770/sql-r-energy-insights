@@ -58,8 +58,28 @@
     label: "",
     compareLabel: "",
     household: "all",
-    latestAnalysis: null
+    latestAnalysis: null,
+    meta: null,
+    compareMeta: null,
+    plans: undefined,
+    sampleText: null,
+    refreshTimer: null,
+    loadSeq: 0
   };
+
+  // Every primary load (sample fetch, NEM12 fetch, file read) takes a ticket;
+  // only the newest may apply, so a slow sample fetch that resolves after the
+  // user has dropped their own file cannot overwrite it.
+  function beginLoad() {
+    state.loadSeq += 1;
+    return state.loadSeq;
+  }
+
+  function isCurrentLoad(ticket) {
+    return ticket === state.loadSeq;
+  }
+
+  const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   function readDateOrder() {
     const el = document.getElementById("date-order");
@@ -114,8 +134,33 @@
     }
   }
 
+  function parseDetails(text) {
+    return GS().parseEnergyTextDetails(text, { dateOrder: readDateOrder() });
+  }
+
   function parseText(text) {
-    return GS().parseEnergyCsv(text, { dateOrder: readDateOrder() });
+    return parseDetails(text).rows;
+  }
+
+  function readBattery() {
+    const capacityEl = document.getElementById("battery-capacity");
+    const costEl = document.getElementById("battery-cost");
+    const capacity = capacityEl ? Number(capacityEl.value) : GS().DEFAULT_BATTERY.capacity_kwh;
+    const costRaw = costEl ? String(costEl.value).trim() : "";
+    const cost = costRaw === "" ? null : Number(costRaw);
+    return {
+      capacity_kwh: Number.isFinite(capacity) && capacity >= 0 ? capacity : GS().DEFAULT_BATTERY.capacity_kwh,
+      efficiency: GS().DEFAULT_BATTERY.efficiency,
+      cost_aud: Number.isFinite(cost) && cost > 0 ? cost : null
+    };
+  }
+
+  function analysisOptions() {
+    const options = { battery: readBattery() };
+    if (Array.isArray(state.plans) && state.plans.length) {
+      options.plans = state.plans;
+    }
+    return options;
   }
 
   function currentRows() {
@@ -209,7 +254,9 @@
     }
     const duplicates = quality.duplicate_keys ?? quality.duplicateKeys ?? 0;
     const negatives = quality.negative_energy ?? quality.negativeEnergy ?? 0;
-    if (duplicates <= 0 && negatives <= 0) {
+    const estimated = quality.estimated_intervals ?? quality.estimatedIntervals ?? 0;
+    const missing = quality.missing_intervals ?? quality.missingIntervals ?? 0;
+    if (duplicates <= 0 && negatives <= 0 && estimated <= 0 && missing <= 0) {
       target.hidden = true;
       target.textContent = "";
       return;
@@ -221,8 +268,14 @@
     if (negatives > 0) {
       parts.push(`${GS().formatNumber(negatives, 0)} row${negatives === 1 ? "" : "s"} with negative energy`);
     }
+    if (estimated > 0) {
+      parts.push(`${GS().formatNumber(estimated, 0)} estimated or substituted interval${estimated === 1 ? "" : "s"}`);
+    }
+    if (missing > 0) {
+      parts.push(`${GS().formatNumber(missing, 0)} missing interval${missing === 1 ? "" : "s"}`);
+    }
     target.hidden = false;
-    target.textContent = `Data quality: ${parts.join(" and ")}. Rows are kept, not dropped.`;
+    target.textContent = `Data quality: ${parts.join(", ")}. Readings are kept and flagged, not dropped.`;
   }
 
   function updatePeakShift(analysis) {
@@ -265,6 +318,104 @@
         ? "No solar self-consumption applied."
         : `Estimated saving ${GS().formatMoney(amount)} on this tariff.`;
     }
+  }
+
+  function updateBattery(analysis) {
+    const label = $("#battery-capacity-label");
+    const output = $("#battery-saving");
+    if (!analysis || !output) {
+      return;
+    }
+    const battery = readBattery();
+    const capacity = battery.capacity_kwh;
+    if (label) {
+      label.textContent = `${GS().formatNumber(capacity, capacity % 1 ? 1 : 0)} kWh`;
+    }
+    if (capacity <= 0) {
+      output.textContent = "No battery.";
+      return;
+    }
+    const result = GS().whatIfBattery(analysis.rows || [], readTariff(), capacity, battery.efficiency, battery.cost_aud);
+    const saving = result.saving_aud ?? 0;
+    if (saving <= 0.005) {
+      output.textContent = "No saving: this usage leaves little exported solar to store.";
+      return;
+    }
+    const days = result.days || 0;
+    const annual = result.annual_saving_aud ?? 0;
+    // A full year needs no annualising; anything else is scaled and says so.
+    const span = `over ${GS().formatNumber(days, 0)} day${days === 1 ? "" : "s"}`;
+    const parts = [
+      days === 365
+        ? `Saves ${GS().formatMoney(saving)} a year`
+        : `Saves ${GS().formatMoney(saving)} ${span} (≈${GS().formatMoney(annual)}/yr annualised)`,
+      `${GS().formatNumber(result.cycles || 0, 0)} cycles per battery`
+    ];
+    const payback = result.payback_years;
+    if (payback !== null && payback !== undefined) {
+      parts.push(`payback ${GS().formatNumber(payback)} yr${payback > 10 ? " (longer than a typical 10-year warranty)" : ""}`);
+    }
+    if ((result.batteries || 1) > 1) {
+      parts.push(`one battery per household (${GS().formatNumber(result.batteries, 0)})`);
+    }
+    output.textContent = `${parts.join(" · ")}.`;
+  }
+
+  function renderPlanSwitch(plans) {
+    const target = $("#plan-switch-note");
+    if (!target) {
+      return;
+    }
+    const current = plans ? (plans.current_bill ?? plans.currentBill) : null;
+    if (!plans || !plans.cheapest || current === null || current === undefined) {
+      target.hidden = true;
+      target.textContent = "";
+      return;
+    }
+    const saving = plans.switch_saving ?? plans.switchSaving ?? 0;
+    target.hidden = false;
+    target.textContent = saving > 0.005
+      ? `Your tariff bills ${GS().formatMoney(current)} on this usage; ${plans.cheapest} would save ${GS().formatMoney(saving)}.`
+      : `Your tariff (${GS().formatMoney(current)}) is already cheaper than these plans on this usage.`;
+  }
+
+  function renderSourceBadge(analysis) {
+    const target = $("#source-badge");
+    if (!target) {
+      return;
+    }
+    const meta = state.meta;
+    if (!meta || !analysis) {
+      target.hidden = true;
+      target.textContent = "";
+      return;
+    }
+    const totals = analysis.totals || {};
+    const quality = analysis.quality || {};
+    const parts = [];
+    if (meta.format === "nem12") {
+      parts.push("NEM12");
+      if (meta.interval_minutes) {
+        parts.push(`${meta.interval_minutes}-min intervals`);
+      }
+      if (meta.nmis && meta.nmis.length) {
+        parts.push(`NMI ${meta.nmis.join(", ")}`);
+      }
+    } else {
+      parts.push("CSV");
+      parts.push(analysis.source && analysis.source.hourly ? "hourly" : "daily");
+      parts.push(`${GS().formatNumber(totals.households || 0, 0)} household${totals.households === 1 ? "" : "s"}`);
+    }
+    parts.push(`${GS().formatNumber(totals.days || 0, 0)} days`);
+    const estimated = quality.estimated_intervals ?? 0;
+    if (estimated > 0) {
+      parts.push(`${GS().formatNumber(estimated, 0)} estimated intervals`);
+    }
+    if (meta.skipped_channels && meta.skipped_channels.length) {
+      parts.push(`skipped ${meta.skipped_channels.join(", ")}`);
+    }
+    target.hidden = false;
+    target.textContent = parts.join(" · ");
   }
 
   function renderCoverage(coverage) {
@@ -414,8 +565,8 @@
     return `<div class="chart-empty">${escapeHtml(message)}</div>`;
   }
 
-  function svgFrame(width, height, content) {
-    return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Generated energy chart">
+  function svgFrame(width, height, content, label) {
+    return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(label || "Generated energy chart")}">
       <style>text{font-family:"IBM Plex Sans",system-ui,sans-serif}</style>
       ${content}
     </svg>`;
@@ -473,6 +624,89 @@
     `);
   }
 
+  function drawDailyChart(daily, anomalies) {
+    if (!daily || daily.length === 0) {
+      return emptyChart("No daily data.");
+    }
+    const flags = anomalies || [];
+    const width = 760;
+    const height = 300;
+    const pad = { top: 24, right: 20, bottom: 46, left: 54 };
+    const plotWidth = width - pad.left - pad.right;
+    const plotHeight = height - pad.top - pad.bottom;
+    const count = daily.length;
+    const maxValue = Math.max(
+      1,
+      ...daily.map((item) => Math.max(Number(item.grid) || 0, Number(item.solar) || 0)),
+      ...flags.map((item) => Number(item.grid) || 0)
+    );
+    const x = (index) => (count === 1 ? pad.left + plotWidth / 2 : pad.left + (plotWidth * index) / (count - 1));
+    const y = (value) => pad.top + plotHeight - (Math.max(0, value) / maxValue) * plotHeight;
+    const baseY = pad.top + plotHeight;
+    const gridPoints = daily.map((item, index) => `${x(index).toFixed(1)},${y(item.grid).toFixed(1)}`).join(" ");
+    const solarPoints = daily.map((item, index) => `${x(index).toFixed(1)},${y(item.solar).toFixed(1)}`).join(" ");
+    const hasSolar = daily.some((item) => (Number(item.solar) || 0) > 0);
+    const area = count > 1 ? `<path d="M ${x(0).toFixed(1)} ${baseY} L ${gridPoints} L ${x(count - 1).toFixed(1)} ${baseY} Z" fill="url(#gs-daily-fill)" />` : "";
+    const guides = [0, 0.5, 1].map((ratio) => {
+      const gy = pad.top + ratio * plotHeight;
+      const value = maxValue * (1 - ratio);
+      return `<line x1="${pad.left}" x2="${width - pad.right}" y1="${gy}" y2="${gy}" stroke="${colors.line}" stroke-width="1" />
+        <text x="${pad.left - 8}" y="${gy + 4}" text-anchor="end" font-size="11" fill="${colors.muted}">${escapeHtml(GS().formatNumber(value, 0))}</text>`;
+    }).join("");
+
+    const monthStarts = [];
+    daily.forEach((item, index) => {
+      const month = String(item.day).slice(0, 7);
+      if (!monthStarts.length || monthStarts[monthStarts.length - 1].month !== month) {
+        monthStarts.push({ month, index });
+      }
+    });
+    const spansYears = new Set(monthStarts.map((item) => item.month.slice(0, 4))).size > 1;
+    const step = Math.max(1, Math.ceil(monthStarts.length / 12));
+    const ticks = monthStarts.filter((_, position) => position % step === 0).map((item) => {
+      const monthIndex = Number(item.month.slice(5, 7)) - 1;
+      const label = `${MONTH_NAMES[monthIndex] || item.month}${spansYears ? ` ${item.month.slice(2, 4)}` : ""}`;
+      return `<line x1="${x(item.index).toFixed(1)}" x2="${x(item.index).toFixed(1)}" y1="${baseY}" y2="${baseY + 5}" stroke="${colors.line}" />
+        <text x="${x(item.index).toFixed(1)}" y="${height - 18}" text-anchor="middle" font-size="11" fill="${colors.muted}">${escapeHtml(label)}</text>`;
+    }).join("");
+
+    const dayIndex = new Map(daily.map((item, index) => [item.day, index]));
+    const dots = flags.map((item) => {
+      const index = dayIndex.get(item.day);
+      if (index === undefined) {
+        return "";
+      }
+      const kind = item.anomaly_type || item.anomalyType;
+      const fill = kind === "high_spike" ? colors.ember : colors.cyan;
+      const z = item.z_score ?? item.zScore;
+      const baseline = item.baseline_kwh ?? item.baselineKwh;
+      const score = z === null || z === undefined
+        ? `${GS().formatNumber(item.pct_of_average ?? item.pctOfAverage)}% of baseline`
+        : `z ${GS().formatNumber(z)}`;
+      const title = `${item.household} · ${item.day} · ${GS().formatNumber(item.grid)} kWh vs ${GS().formatNumber(baseline)} kWh baseline · ${score}`;
+      return `<circle cx="${x(index).toFixed(1)}" cy="${y(item.grid).toFixed(1)}" r="5.5" fill="${fill}" stroke="${colors.ink}" stroke-opacity="0.5" stroke-width="1"><title>${escapeHtml(title)}</title></circle>`;
+    }).join("");
+
+    const label = `Daily grid import over ${count} day${count === 1 ? "" : "s"}${hasSolar ? " with solar export" : ""}; ${flags.length} unusual day${flags.length === 1 ? "" : "s"} marked.`;
+    return svgFrame(width, height, `
+      <defs>
+        <linearGradient id="gs-daily-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${colors.cyan}" stop-opacity="0.32"/>
+          <stop offset="100%" stop-color="${colors.cyan}" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${guides}
+      ${area}
+      ${hasSolar ? `<polyline points="${solarPoints}" fill="none" stroke="${colors.phosphor}" stroke-width="1.2" stroke-opacity="0.55" stroke-linejoin="round" />` : ""}
+      <polyline points="${gridPoints}" fill="none" stroke="${colors.cyan}" stroke-width="1.8" stroke-linejoin="round" />
+      ${count === 1 ? `<circle cx="${x(0)}" cy="${y(daily[0].grid)}" r="4" fill="${colors.cyan}" />` : ""}
+      ${dots}
+      ${ticks}
+      <text x="${pad.left}" y="14" font-size="11" fill="${colors.cyan}">Grid import kWh</text>
+      ${hasSolar ? `<text x="${pad.left + 120}" y="14" font-size="11" fill="${colors.phosphor}">Solar export kWh</text>` : ""}
+    `, label);
+  }
+
   function drawLoadMix(groups) {
     if (groups.length === 0) {
       return emptyChart("No grouped data.");
@@ -521,7 +755,7 @@
     const maxValue = Math.max(...anomalies.map((item) => item.grid), 1);
     const gap = 10;
     const visible = anomalies.slice(0, 10);
-    const barWidth = Math.max(12, (width - pad.left - pad.right - gap * (visible.length - 1)) / visible.length);
+    const barWidth = Math.min(72, Math.max(12, (width - pad.left - pad.right - gap * (visible.length - 1)) / visible.length));
     const bars = visible.map((item, index) => {
       const x = pad.left + index * (barWidth + gap);
       const barHeight = (item.grid / maxValue) * (height - pad.top - pad.bottom);
@@ -634,15 +868,22 @@
       ? `No bill column was supplied. Tariff bill is ${GS().formatMoney(tariffBill)}.`
       : `Estimated CSV spend is ${GS().formatMoney(totals.bill)}. Tariff bill is ${GS().formatMoney(tariffBill)}.`;
 
+    // NEM12 meters record import and export, not total household consumption.
+    const base = analysis.source && analysis.source.format === "nem12" ? "grid import" : "recorded consumption";
     const insights = [
       `Highest grid import month: ${highest.key} at ${GS().formatNumber(highest.grid)} kWh.`,
       `Lowest grid import month: ${lowest.key} at ${GS().formatNumber(lowest.grid)} kWh.`,
-      `Solar exports equal ${GS().formatNumber(solarOffset)}% of recorded consumption.`,
-      `Peak usage is ${GS().formatNumber(peakShare)}% of recorded consumption.`,
+      `Solar exports equal ${GS().formatNumber(solarOffset)}% of ${base}.`,
+      `Peak usage is ${GS().formatNumber(peakShare)}% of ${base}.`,
       billInsight
     ];
     if (cheapest) {
       insights.push(`Cheapest named plan on this usage: ${cheapest}.`);
+    }
+    const flags = analysis.anomalies || [];
+    if (flags.length) {
+      const top = flags[0];
+      insights.push(`${flags.length} unusual day${flags.length === 1 ? "" : "s"}; the largest is ${top.household} on ${top.day} at ${GS().formatNumber(top.grid)} kWh against a ${GS().formatNumber(top.baseline_kwh ?? top.baselineKwh)} kWh baseline.`);
     }
     return insights;
   }
@@ -755,12 +996,20 @@
 
     renderTable($("#anomaly-table"), analysis.anomalies, [
       { key: "day", label: "Day", format: (value) => value },
-      { key: "neighbourhood", label: "Group", format: (value) => value },
+      { key: "household", label: "Household", format: (value) => value || "—" },
       { key: "grid", label: "Grid import", format: (value) => `${GS().formatNumber(value)} kWh` },
-      { key: "pctOfAverage", label: "% of average", format: (value, row) => `${GS().formatNumber(value ?? row.pct_of_average)}%` },
-      { key: "anomalyType", label: "Type", format: (value, row) => value || row.anomaly_type },
-      { key: "baseline", label: "Baseline", format: (value) => value || "—" },
-      { key: "baselineKwh", label: "Baseline kWh", format: (value, row) => `${GS().formatNumber(value ?? row.baseline_kwh)} kWh` }
+      { key: "baselineKwh", label: "Baseline", format: (value, row) => `${GS().formatNumber(value ?? row.baseline_kwh)} kWh` },
+      { key: "pctOfAverage", label: "% of baseline", format: (value, row) => `${GS().formatNumber(value ?? row.pct_of_average)}%` },
+      {
+        key: "z_score",
+        label: "z",
+        format: (value, row) => {
+          const z = value ?? row.zScore;
+          return z === null || z === undefined ? "—" : GS().formatNumber(z);
+        }
+      },
+      { key: "method", label: "Method", format: (value, row) => (value === "mad" ? "median/MAD" : `ratio (${row.baseline || "household"})`) },
+      { key: "anomalyType", label: "Type", format: (value, row) => (value || row.anomaly_type) === "high_spike" ? "high spike" : "low dip" }
     ]);
   }
 
@@ -796,6 +1045,7 @@
   }
 
   function exportAnalysis() {
+    flushRefresh();
     if (!state.latestAnalysis) {
       return;
     }
@@ -816,12 +1066,17 @@
       weekend: state.latestAnalysis.weekend,
       quality: state.latestAnalysis.quality,
       what_if: state.latestAnalysis.what_if ?? state.latestAnalysis.whatIf,
-      what_if_solar: state.latestAnalysis.what_if_solar ?? state.latestAnalysis.whatIfSolar
+      what_if_solar: state.latestAnalysis.what_if_solar ?? state.latestAnalysis.whatIfSolar,
+      what_if_battery: GS().whatIfBattery(state.latestAnalysis.rows || [], readTariff(), readBattery().capacity_kwh, readBattery().efficiency, readBattery().cost_aud),
+      daily: state.latestAnalysis.daily,
+      source: { ...(state.meta || {}), ...(state.latestAnalysis.source || {}) },
+      version: GS().VERSION
     };
     downloadText("energy-analysis.json", JSON.stringify(payload, null, 2), "application/json");
   }
 
   function exportCsv() {
+    flushRefresh();
     if (!state.latestAnalysis) {
       return;
     }
@@ -831,6 +1086,7 @@
   }
 
   function copySummary() {
+    flushRefresh();
     if (!state.latestAnalysis) {
       return;
     }
@@ -842,7 +1098,24 @@
       `Tariff bill: ${GS().formatMoney(totals.tariffBill ?? totals.tariff_bill)}`,
       `Cost per kWh: ${GS().formatMoney(totals.cost_per_kwh ?? totals.costPerKwh)}`,
       `Grid import: ${GS().formatNumber(totals.grid)} kWh across ${GS().formatNumber(totals.days, 0)} days`,
-      winner ? `Cheapest plan: ${winner.name} at ${GS().formatMoney(winner.bill)}` : ""
+      winner ? `Cheapest plan: ${winner.name} at ${GS().formatMoney(winner.bill)}` : "",
+      (() => {
+        const plansInfo = state.latestAnalysis.plans || {};
+        const saving = plansInfo.switch_saving ?? 0;
+        return saving > 0.005 ? `Switching saves: ${GS().formatMoney(saving)}` : "";
+      })(),
+      (() => {
+        const battery = readBattery();
+        if (battery.capacity_kwh <= 0) {
+          return "";
+        }
+        const result = GS().whatIfBattery(state.latestAnalysis.rows || [], readTariff(), battery.capacity_kwh, battery.efficiency, battery.cost_aud);
+        if ((result.saving_aud ?? 0) <= 0.005) {
+          return "";
+        }
+        const payback = result.payback_years === null ? "" : `, payback ${GS().formatNumber(result.payback_years)} yr`;
+        return `${GS().formatNumber(battery.capacity_kwh)} kWh battery: ${GS().formatMoney(result.annual_saving_aud)}/yr${payback}`;
+      })()
     ].filter(Boolean);
     const text = lines.join("\n");
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -885,7 +1158,7 @@
     if (!state.primaryRows) {
       return;
     }
-    const analysis = GS().getAnalysis(currentRows(), readTariff(), "all", readTou(), readDedupe());
+    const analysis = GS().getAnalysis(currentRows(), readTariff(), "all", readTou(), readDedupe(), analysisOptions());
     state.latestAnalysis = analysis;
     const results = $("#personal-results");
     if (results) {
@@ -893,9 +1166,12 @@
     }
     document.body.classList.add("has-results");
     renderHero(analysis);
+    renderSourceBadge(analysis);
     updatePeakShift(analysis);
     updateSolarShift(analysis);
+    updateBattery(analysis);
     renderPlans(analysis);
+    renderPlanSwitch(analysis.plans);
     renderMetrics(analysis);
     renderWeekend(analysis.weekend);
     renderCoverage(analysis.coverage);
@@ -908,6 +1184,16 @@
     const anomalyChart = $("#anomaly-chart");
     const heatmapChart = $("#heatmap-chart");
     const heatmapNote = $("#heatmap-note");
+    const dailyChart = $("#daily-chart");
+    if (dailyChart) {
+      dailyChart.innerHTML = drawDailyChart(analysis.daily, analysis.anomalies);
+    }
+    const dailyNote = $("#daily-note");
+    if (dailyNote) {
+      dailyNote.textContent = (analysis.totals.households || 0) > 1
+        ? "Total grid import per day across households, with solar export. Dots mark unusual household-days at that household's own kWh."
+        : "Grid import per day with solar export. Dots mark unusual days.";
+    }
     if (monthlyChart) {
       monthlyChart.innerHTML = drawMonthlyChart(analysis.monthly);
     }
@@ -925,7 +1211,9 @@
     }
     if (heatmapNote) {
       heatmapNote.textContent = analysis.heatmap.axis === "hour"
-        ? "Grid import by weekday and hour of day."
+        ? (analysis.source && analysis.source.format === "nem12"
+          ? "Grid import by weekday and hour of day, from NEM12 intervals (market time, AEST)."
+          : "Grid import by weekday and hour of day.")
         : "Grid import by weekday and month.";
     }
     renderTables(analysis);
@@ -963,13 +1251,18 @@
 
   function handlePrimaryText(text, label) {
     try {
-      const rows = parseText(text);
+      const parsed = parseDetails(text);
+      const rows = parsed.rows;
+      state.meta = parsed.meta;
       state.primaryText = text;
       state.primaryRows = rows;
       state.label = label;
       state.household = "all";
       syncHouseholdFilter(rows);
-      setStatus("ok", `${label}: ${rows.length} records analysed.`);
+      const what = parsed.meta && parsed.meta.format === "nem12"
+        ? `${GS().formatNumber(rows.length, 0)} hourly readings from NEM12 intervals`
+        : `${GS().formatNumber(rows.length, 0)} records`;
+      setStatus("ok", `${label}: ${what} analysed.`);
       refreshView();
     } catch (error) {
       const results = $("#personal-results");
@@ -987,7 +1280,9 @@
         return;
       }
       state.compareText = text;
-      state.compareRows = parseText(text);
+      const parsedCompare = parseDetails(text);
+      state.compareRows = parsedCompare.rows;
+      state.compareMeta = parsedCompare.meta;
       state.compareLabel = label;
       setStatus("ok", `${state.label} vs ${label}: compare ready.`);
       refreshView();
@@ -1005,7 +1300,9 @@
       return;
     }
     try {
-      state.primaryRows = parseText(state.primaryText);
+      const parsed = parseDetails(state.primaryText);
+      state.primaryRows = parsed.rows;
+      state.meta = parsed.meta;
       syncHouseholdFilter(state.primaryRows);
       if (state.compareText) {
         state.compareRows = parseText(state.compareText);
@@ -1030,21 +1327,82 @@
     return link ? link.getAttribute("href") : "";
   }
 
-  function loadSampleCsv() {
+  function getSampleText() {
+    if (state.sampleText) {
+      return Promise.resolve(state.sampleText);
+    }
     const href = sampleHref();
-    if (href && window.location.protocol !== "file:") {
-      fetch(href)
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error("sample fetch failed");
-          }
-          return response.text();
-        })
-        .then((text) => handlePrimaryText(text, "Sample data"))
-        .catch(() => handlePrimaryText(sampleCsv, "Sample data"));
+    if (!href || window.location.protocol === "file:") {
+      return Promise.resolve(sampleCsv);
+    }
+    return fetch(href)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("sample fetch failed");
+        }
+        return response.text();
+      })
+      .then((text) => {
+        state.sampleText = text;
+        return text;
+      })
+      .catch(() => sampleCsv);
+  }
+
+  function loadSampleCsv() {
+    const ticket = beginLoad();
+    setStatus("ok", "Loading the sample…");
+    return getSampleText().then((text) => {
+      if (isCurrentLoad(ticket)) {
+        handlePrimaryText(text, "Sample data");
+      }
+    });
+  }
+
+  function loadNem12Sample(button) {
+    const href = button.getAttribute("data-href") || "";
+    if (!href || window.location.protocol === "file:") {
+      setStatus("error", "The NEM12 sample can't be fetched from a file:// page. Choose data/sample_nem12.csv with Choose CSV, or use the live site.");
       return;
     }
-    handlePrimaryText(sampleCsv, "Sample data");
+    const ticket = beginLoad();
+    setStatus("ok", "Loading the NEM12 sample…");
+    fetch(href)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.text();
+      })
+      .then((text) => {
+        if (isCurrentLoad(ticket)) {
+          handlePrimaryText(text, "NEM12 sample");
+        }
+      })
+      .catch((error) => {
+        if (isCurrentLoad(ticket)) {
+          setStatus("error", `Could not load the NEM12 sample (${error.message}).`);
+        }
+      });
+  }
+
+  function scheduleRefresh() {
+    // Rebilling a year of hourly NEM12 rows takes ~0.1 s; wait for a pause in typing.
+    window.clearTimeout(state.refreshTimer);
+    state.refreshTimer = window.setTimeout(() => {
+      state.refreshTimer = null;
+      refreshView();
+    }, 150);
+  }
+
+  function flushRefresh() {
+    // Export, copy and print must describe the tariff on screen, not the one
+    // from before a still-pending debounced rebill.
+    if (state.refreshTimer) {
+      window.clearTimeout(state.refreshTimer);
+      state.refreshTimer = null;
+      refreshView();
+    }
   }
 
   function init() {
@@ -1092,7 +1450,10 @@
     }
     const printButton = $("#print-bill");
     if (printButton) {
-      printButton.addEventListener("click", () => window.print());
+      printButton.addEventListener("click", () => {
+        flushRefresh();
+        window.print();
+      });
     }
 
     const dropRoot = document.getElementById("upload-studio") || document.body;
@@ -1112,7 +1473,12 @@
       dropRoot.classList.remove("drop-active");
       const files = Array.from((event.dataTransfer && event.dataTransfer.files) || []);
       if (files[0]) {
-        readFile(files[0], (text) => handlePrimaryText(text, files[0].name));
+        const ticket = beginLoad();
+        readFile(files[0], (text) => {
+          if (isCurrentLoad(ticket)) {
+            handlePrimaryText(text, files[0].name);
+          }
+        });
       }
       if (files[1]) {
         readFile(files[1], (text) => handleCompareText(text, files[1].name));
@@ -1124,10 +1490,19 @@
       if (!file) {
         return;
       }
-      readFile(file, (text) => handlePrimaryText(text, file.name));
+      const ticket = beginLoad();
+      readFile(file, (text) => {
+        if (isCurrentLoad(ticket)) {
+          handlePrimaryText(text, file.name);
+        }
+      });
     });
 
     sample.addEventListener("click", loadSampleCsv);
+    const nem12Sample = $("#load-nem12-sample");
+    if (nem12Sample) {
+      nem12Sample.addEventListener("click", () => loadNem12Sample(nem12Sample));
+    }
 
     const compareInput = $("#compare-csv");
     if (compareInput) {
@@ -1142,7 +1517,9 @@
 
     const compareSample = $("#compare-sample");
     if (compareSample) {
-      compareSample.addEventListener("click", () => handleCompareText(sampleCsv, "Sample data"));
+      compareSample.addEventListener("click", () => {
+        getSampleText().then((text) => handleCompareText(text, "Sample data"));
+      });
     }
 
     const householdFilter = $("#household-filter");
@@ -1171,7 +1548,17 @@
     ["tariff-peak", "tariff-shoulder", "tariff-offpeak", "tariff-export", "tariff-supply", "tariff-gst"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) {
-        el.addEventListener("input", refreshView);
+        el.addEventListener("input", scheduleRefresh);
+      }
+    });
+    ["battery-capacity", "battery-cost"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener("input", () => {
+          if (state.latestAnalysis) {
+            updateBattery(state.latestAnalysis);
+          }
+        });
       }
     });
 
@@ -1208,6 +1595,19 @@
     }
     if (boot && boot.tariff) {
       applyTariffToForm(boot.tariff);
+    }
+    if (boot && Array.isArray(boot.plans) && boot.plans.length) {
+      state.plans = boot.plans;
+    }
+    if (boot && boot.battery) {
+      const capacityEl = $("#battery-capacity");
+      const costEl = $("#battery-cost");
+      if (capacityEl && Number.isFinite(Number(boot.battery.capacity_kwh)) && boot.battery.capacity_kwh !== null) {
+        capacityEl.value = String(Math.min(20, Math.max(0, Number(boot.battery.capacity_kwh))));
+      }
+      if (costEl && boot.battery.cost_aud !== null && boot.battery.cost_aud !== undefined) {
+        costEl.value = String(boot.battery.cost_aud);
+      }
     }
     if (boot && boot.csv) {
       handlePrimaryText(boot.csv, boot.label || "Embedded data");
