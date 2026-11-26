@@ -25,15 +25,24 @@ python3 -m gridscope data/sample_nem12.csv --html output/py-nem12-report.html --
 make demo-py demo-nem12
 ```
 
-The CLI always prints a summary:
+The CLI always prints a summary. For the NEM12 sample with a $9,000 battery quote:
 
 ```text
 GridScope 0.9.0
 Source      NEM12 · 30-min intervals · 6408091234
+Records     8760
 Days        365
+Households  1
 Grid kWh    3093.2
+Solar kWh   7176.7
+Supply      $401.50
+GST         $61.38
+Ex GST      $613.82
 Tariff bill $675.21
+Cost/kWh    $0.218
 Cheapest    Solar Plus
+Weekday     2113.6 kWh / $524.95
+Weekend     979.6 kWh / $150.26
 Intervals   102 estimated/substituted, 0 missing
 Switch save $258.33
 Battery     10.0 kWh saves $513.59 ($514/yr annualised), payback 17.5 yr

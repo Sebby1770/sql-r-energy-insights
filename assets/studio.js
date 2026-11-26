@@ -63,8 +63,21 @@
     compareMeta: null,
     plans: undefined,
     sampleText: null,
-    refreshTimer: null
+    refreshTimer: null,
+    loadSeq: 0
   };
+
+  // Every primary load (sample fetch, NEM12 fetch, file read) takes a ticket;
+  // only the newest may apply, so a slow sample fetch that resolves after the
+  // user has dropped their own file cannot overwrite it.
+  function beginLoad() {
+    state.loadSeq += 1;
+    return state.loadSeq;
+  }
+
+  function isCurrentLoad(ticket) {
+    return ticket === state.loadSeq;
+  }
 
   const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -1032,6 +1045,7 @@
   }
 
   function exportAnalysis() {
+    flushRefresh();
     if (!state.latestAnalysis) {
       return;
     }
@@ -1062,6 +1076,7 @@
   }
 
   function exportCsv() {
+    flushRefresh();
     if (!state.latestAnalysis) {
       return;
     }
@@ -1071,6 +1086,7 @@
   }
 
   function copySummary() {
+    flushRefresh();
     if (!state.latestAnalysis) {
       return;
     }
@@ -1334,8 +1350,13 @@
   }
 
   function loadSampleCsv() {
+    const ticket = beginLoad();
     setStatus("ok", "Loading the sample…");
-    return getSampleText().then((text) => handlePrimaryText(text, "Sample data"));
+    return getSampleText().then((text) => {
+      if (isCurrentLoad(ticket)) {
+        handlePrimaryText(text, "Sample data");
+      }
+    });
   }
 
   function loadNem12Sample(button) {
@@ -1344,6 +1365,7 @@
       setStatus("error", "The NEM12 sample can't be fetched from a file:// page. Choose data/sample_nem12.csv with Choose CSV, or use the live site.");
       return;
     }
+    const ticket = beginLoad();
     setStatus("ok", "Loading the NEM12 sample…");
     fetch(href)
       .then((response) => {
@@ -1352,14 +1374,35 @@
         }
         return response.text();
       })
-      .then((text) => handlePrimaryText(text, "NEM12 sample"))
-      .catch((error) => setStatus("error", `Could not load the NEM12 sample (${error.message}).`));
+      .then((text) => {
+        if (isCurrentLoad(ticket)) {
+          handlePrimaryText(text, "NEM12 sample");
+        }
+      })
+      .catch((error) => {
+        if (isCurrentLoad(ticket)) {
+          setStatus("error", `Could not load the NEM12 sample (${error.message}).`);
+        }
+      });
   }
 
   function scheduleRefresh() {
     // Rebilling a year of hourly NEM12 rows takes ~0.1 s; wait for a pause in typing.
     window.clearTimeout(state.refreshTimer);
-    state.refreshTimer = window.setTimeout(refreshView, 150);
+    state.refreshTimer = window.setTimeout(() => {
+      state.refreshTimer = null;
+      refreshView();
+    }, 150);
+  }
+
+  function flushRefresh() {
+    // Export, copy and print must describe the tariff on screen, not the one
+    // from before a still-pending debounced rebill.
+    if (state.refreshTimer) {
+      window.clearTimeout(state.refreshTimer);
+      state.refreshTimer = null;
+      refreshView();
+    }
   }
 
   function init() {
@@ -1407,7 +1450,10 @@
     }
     const printButton = $("#print-bill");
     if (printButton) {
-      printButton.addEventListener("click", () => window.print());
+      printButton.addEventListener("click", () => {
+        flushRefresh();
+        window.print();
+      });
     }
 
     const dropRoot = document.getElementById("upload-studio") || document.body;
@@ -1427,7 +1473,12 @@
       dropRoot.classList.remove("drop-active");
       const files = Array.from((event.dataTransfer && event.dataTransfer.files) || []);
       if (files[0]) {
-        readFile(files[0], (text) => handlePrimaryText(text, files[0].name));
+        const ticket = beginLoad();
+        readFile(files[0], (text) => {
+          if (isCurrentLoad(ticket)) {
+            handlePrimaryText(text, files[0].name);
+          }
+        });
       }
       if (files[1]) {
         readFile(files[1], (text) => handleCompareText(text, files[1].name));
@@ -1439,7 +1490,12 @@
       if (!file) {
         return;
       }
-      readFile(file, (text) => handlePrimaryText(text, file.name));
+      const ticket = beginLoad();
+      readFile(file, (text) => {
+        if (isCurrentLoad(ticket)) {
+          handlePrimaryText(text, file.name);
+        }
+      });
     });
 
     sample.addEventListener("click", loadSampleCsv);
